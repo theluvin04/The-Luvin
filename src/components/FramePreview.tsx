@@ -1,6 +1,4 @@
-// FIX: import useMemo from React
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-// FIX: Update imports to use AllProducts type and remove dependency on constants.
 import type { FrameConfig, LegoPart, TextConfig, AllProducts, FrameOption } from '../types';
 
 type Transform = {
@@ -20,7 +18,6 @@ interface FramePreviewProps {
   isInteractive?: boolean;
   selectedItemId: string | null;
   setSelectedItemId: (id: string | null) => void;
-  // FIX: Add allProducts prop to receive dynamic product data.
   allProducts: AllProducts | null;
 }
 
@@ -142,12 +139,12 @@ const EditableText: React.FC<{
 
     const textStyle: React.CSSProperties = {
         fontFamily: getFontFamily(text.font),
-        fontSize: `${text.size * (scale / 20)}px`, // Kept division for sensible default sizes
+        fontSize: `${text.size * (scale / 15)}px`,
         color: text.color,
         whiteSpace: 'pre-wrap',
         textAlign: text.textAlign || 'center',
         padding: '10px',
-        textShadow: '0 0 5px white, 0 0 5px white',
+        textShadow: text.background ? '0 0 5px white, 0 0 5px white, 0 0 5px white' : 'none',
         ...(text.background && { backgroundColor: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(2px)', borderRadius: '5px' })
     };
 
@@ -244,7 +241,7 @@ const Transformable: React.FC<{
         const startRotation = initialTransform.rotation;
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
-            const currentAngle = Math.atan2(moveEvent.clientY - centerY, e.clientX - centerX) * 180 / Math.PI;
+            const currentAngle = Math.atan2(moveEvent.clientY - centerY, moveEvent.clientX - centerX) * 180 / Math.PI;
             const deltaAngle = currentAngle - startAngle;
             onTransform(id, { ...initialTransform, rotation: startRotation + deltaAngle });
         };
@@ -349,12 +346,10 @@ const Transformable: React.FC<{
 
 
 const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ config, containerWidth = 400, onItemTransform, onTextUpdate, className, isInteractive = true, selectedItemId, setSelectedItemId, allProducts }, ref) => {
-  // FIX: Use allProducts from props to get frame data.
   const frameOption = allProducts?.frames.find(f => f.id === config.frameId) || allProducts?.frames[0];
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [isCurrentlyEditingText, setIsCurrentlyEditingText] = useState(false);
 
-  // FIX: Handle loading state when product data is not available.
   if (!allProducts || !frameOption) {
       return (
         <div className={`flex items-center justify-center ${className}`} style={{ width: containerWidth, height: containerWidth }}>
@@ -363,30 +358,21 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
       );
   }
 
-  // --- START OF FIX: Proportional Scaling Logic ---
-  // 1. Find the largest dimension (width or height) across all available frames.
   const maxDimensionCm = useMemo(() => 
     Math.max(...allProducts.frames.map(f => Math.max(f.frameWidthCm, f.frameHeightCm)))
   , [allProducts.frames]);
 
-  // 2. Create a consistent scaling factor (pixels per cm) based on the container width and the max dimension.
   const pxPerCm = containerWidth / maxDimensionCm;
-
-  // 3. Calculate the total dimensions of the current frame in pixels.
   const frameWidth = frameOption.frameWidthCm * pxPerCm;
   const frameHeight = frameOption.frameHeightCm * pxPerCm;
-
-  // 4. Calculate the background dimensions in pixels.
   const backgroundWidth = frameOption.backgroundWidthCm * pxPerCm;
   const backgroundHeight = frameOption.backgroundHeightCm * pxPerCm;
-  // --- END OF FIX ---
 
   const backgroundStyle: React.CSSProperties =
     config.background.type === 'color'
       ? { backgroundColor: config.background.value }
       : { backgroundImage: `url(${config.background.value})`, backgroundSize: 'cover', backgroundPosition: 'center' };
   
-  // FIX: Correctly type and create a lookup map for all LEGO parts from props.
   const allParts: Record<string, LegoPart> = useMemo(() =>
     allProducts
       ? Object.values(allProducts.lego_parts)
@@ -399,9 +385,7 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
   [allProducts]);
 
   return (
-    // This outer div now correctly scales the entire component proportionally.
     <div ref={ref} className={`flex items-center justify-center ${className}`} style={{ width: frameWidth, height: frameHeight }}>
-        {/* This div represents the white frame itself. */}
         <div 
           className="relative bg-white"
           style={{
@@ -410,7 +394,6 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
             boxShadow: `0 4px 12px #d8d8d8`,
           }}
         >
-            {/* This inner div is the background area where items are placed. */}
             <div
                 ref={previewContainerRef}
                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden"
@@ -426,8 +409,6 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                     }
                 }}
             >
-                {/* FIX: Reordered elements for correct visual stacking (z-index). */}
-                {/* 1. Characters render first (at the bottom). */}
                 {config.characters.map(char => {
                     const id = `character-${char.id}`;
                     return (
@@ -436,12 +417,11 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                             parentRef={previewContainerRef} isSelected={selectedItemId === id} onSelect={setSelectedItemId}
                             isResizable={false} isRotatable={false} isDraggable={isInteractive}
                         >
-                           <LegoCharacter character={char} scale={pxPerCm} /> {/* Use the new consistent scale */}
+                           <LegoCharacter character={char} scale={pxPerCm} />
                         </Transformable>
                     );
                 })}
 
-                {/* 2. Draggable items (accessories, pets) render on top of characters. */}
                 {config.draggableItems.map(item => {
                     const isCharm = item.type === 'charm';
                     const part = !isCharm ? allParts[item.partId] : null;
@@ -466,8 +446,8 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                               alt={name} 
                               className="pointer-events-none"
                               style={{
-                                  width: widthCm * pxPerCm, // Use the new consistent scale
-                                  height: heightCm * pxPerCm, // Use the new consistent scale
+                                  width: widthCm * pxPerCm,
+                                  height: heightCm * pxPerCm,
                                   objectFit: 'contain'
                               }}
                             />
@@ -475,7 +455,6 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                     );
                 })}
                 
-                {/* 3. Text renders last (on top of everything). */}
                 {config.texts.map(text => {
                     const id = `text-${text.id}`;
                     const transformProps = {x: text.x, y: text.y, rotation: text.rotation, scale: text.scale, width: text.width};
@@ -490,7 +469,7 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                         >
                            <EditableText
                              text={text}
-                             scale={pxPerCm} // Use the new consistent scale
+                             scale={pxPerCm}
                              onUpdate={(updates) => onTextUpdate(text.id, updates)}
                              onBeginEditing={() => setIsCurrentlyEditingText(true)}
                              onEndEditing={() => setIsCurrentlyEditingText(false)}

@@ -1,8 +1,5 @@
-
-
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-// FIX: Changed import from 'OrderDetails as CheckoutFormDetails' to 'CheckoutFormDetails' to match the exported type in './types'.
-import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, CheckoutFormDetails, OrderStatus, AllProducts, AllBackgrounds, FrameOption, BackgroundOption, Order } from './types';
+import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, OrderDetails, StoredOrder, OrderStatus, AllProducts, AllBackgrounds, FrameOption, BackgroundOption } from './types';
 import { 
     INITIAL_FRAME_CONFIG, 
     COLLECTION_TEMPLATES, 
@@ -13,7 +10,7 @@ import {
 import FramePreview from './components/FramePreview';
 import LoginPage from './components/LoginPage';
 import AdminLayout from './components/AdminLayout';
-import OrderManagementPage from './components/OrderManagementPage';
+import AdminPage from './components/AdminPage';
 import DashboardPage from './components/DashboardPage';
 import ProductManagementPage from './components/ProductManagementPage';
 import AdminBackgroundsPage from './components/AdminBackgroundsPage';
@@ -23,7 +20,7 @@ import { useAuth } from './AuthContext';
 declare var html2canvas: any;
 
 const formatCurrency = (amount: number) => {
-  if (!amount || amount === 0) return 'Miễn phí';
+  if (amount === 0) return 'Miễn phí';
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 };
 
@@ -76,7 +73,6 @@ const calculatePrice = (config: FrameConfig, allProducts: AllProducts | null) =>
 };
 
 type Transform = { x: number; y: number; rotation: number; scale: number; width?: number };
-
 
 const StepIndicator: React.FC<{ currentStep: number; setStep: (step: number) => void }> = ({ currentStep, setStep }) => {
   const steps = ['Thông tin SP', 'Nền & Chữ', 'Thiết kế', 'Mua hàng'];
@@ -143,7 +139,6 @@ const Step1Frame: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<Reac
   );
 };
 
-
 const PresetBackgroundButton: React.FC<{
     bg: { name: string; url: string };
     isSelected: boolean;
@@ -151,13 +146,35 @@ const PresetBackgroundButton: React.FC<{
 }> = ({ bg, isSelected, onClick }) => {
     let line1 = bg.name;
     let line2 = '';
+
     const match = bg.name.match(/^(.*?)(\s+\d+)$/);
-    if (match) { line1 = match[1]; line2 = match[2].trim(); } 
-    else { const parts = bg.name.split(' '); if (parts.length > 1) { line1 = parts[0]; line2 = parts.slice(1).join(' '); } }
+    
+    if (match) {
+        line1 = match[1]; 
+        line2 = match[2].trim();
+    } else {
+        const parts = bg.name.split(' ');
+        if (parts.length > 1) {
+            line1 = parts[0];
+            line2 = parts.slice(1).join(' ');
+        }
+    }
+
     return (
-        <button onClick={onClick} className={`border-2 rounded-xl p-1.5 flex flex-col items-center justify-start gap-1.5 transition-all text-center w-full ${ isSelected ? 'border-luvin-pink bg-pink-50' : 'border-gray-200 bg-white hover:border-gray-300' }`} >
+        <button
+            onClick={onClick}
+            className={`border-2 rounded-xl p-1.5 flex flex-col items-center justify-start gap-1.5 transition-all text-center w-full ${
+                isSelected
+                    ? 'border-luvin-pink bg-pink-50'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+            }`}
+        >
             <div className="w-full aspect-[4/5] rounded-md bg-gray-100 overflow-hidden flex items-center justify-center">
-                <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
+                <img
+                    src={bg.url}
+                    alt={bg.name}
+                    className="w-full h-full object-cover"
+                />
             </div>
             <div className="flex flex-col justify-center items-center flex-shrink-0 h-9 leading-tight">
                 <span className="text-[11px] font-semibold text-gray-700">{line1}</span>
@@ -174,12 +191,10 @@ const Step2BackgroundAndDecorations: React.FC<{
   addText: () => void;
   addCharm: (dataUrl: string) => void;
   allBackgrounds: AllBackgrounds | null;
-  handleUserImageUpload: (file: File, folder: 'backgrounds' | 'charms') => Promise<string | null>;
-}> = ({ config, setConfig, addText, addCharm, allBackgrounds, handleUserImageUpload }) => {
+}> = ({ config, setConfig, addText, addCharm, allBackgrounds }) => {
   const bgUploadRef = useRef<HTMLInputElement>(null);
   const charmUploadRef = useRef<HTMLInputElement>(null);
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
-  const [isUploading, setIsUploading] = useState(false);
 
   const availableBackgrounds = useMemo(() => {
     if (!allBackgrounds) return [];
@@ -188,38 +203,44 @@ const Step2BackgroundAndDecorations: React.FC<{
     return (isSquare ? allBackgrounds.square : allBackgrounds.rectangle).filter(bg => bg.isVisible);
   }, [config.frameId, allBackgrounds]);
 
-  const categories = useMemo(() => ['Tất cả', ...Array.from(new Set(availableBackgrounds.map(bg => bg.category)))], [availableBackgrounds]);
+  const categories = useMemo(() => {
+    return ['Tất cả', ...Array.from(new Set(availableBackgrounds.map(bg => bg.category)))];
+  }, [availableBackgrounds]);
 
   const filteredBackgrounds = useMemo(() => {
-    if (selectedCategory === 'Tất cả') return availableBackgrounds;
+    if (selectedCategory === 'Tất cả') {
+      return availableBackgrounds;
+    }
     return availableBackgrounds.filter(bg => bg.category === selectedCategory);
   }, [selectedCategory, availableBackgrounds]);
 
   useEffect(() => {
-    if (!categories.includes(selectedCategory)) setSelectedCategory('Tất cả');
+    if (!categories.includes(selectedCategory)) {
+        setSelectedCategory('Tất cả');
+    }
   }, [categories, selectedCategory]);
 
-  const handleBgFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-        setIsUploading(true);
-        const publicUrl = await handleUserImageUpload(file, 'backgrounds');
-        setIsUploading(false);
-        if (publicUrl) {
-            setConfig((prev) => ({ ...prev, background: { type: 'upload', value: publicUrl } }));
+  const handleBgFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const fileReader = new FileReader();
+      fileReader.onload = (event) => {
+        if (event.target && typeof event.target.result === 'string') {
+          setConfig((prev) => ({ ...prev, background: { type: 'upload', value: event.target.result as string } }));
         }
-         if (bgUploadRef.current) bgUploadRef.current.value = "";
+      };
+      fileReader.readAsDataURL(e.target.files[0]);
     }
   };
 
-  const handleCharmFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-        setIsUploading(true);
-        const publicUrl = await handleUserImageUpload(file, 'charms');
-        setIsUploading(false);
-        if (publicUrl) addCharm(publicUrl);
-        if (charmUploadRef.current) charmUploadRef.current.value = "";
+  const handleCharmFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const fileReader = new FileReader();
+      fileReader.onload = (event) => {
+        if (event.target && typeof event.target.result === 'string') {
+          addCharm(event.target.result as string);
+        }
+      };
+      fileReader.readAsDataURL(e.target.files[0]);
     }
   };
 
@@ -227,25 +248,59 @@ const Step2BackgroundAndDecorations: React.FC<{
     <div className="space-y-4">
       <div className="p-4 border border-gray-200 rounded-lg">
         <h4 className="font-bold text-gray-800 mb-3">A. CHỌN MẪU NỀN CÓ SẴN</h4>
+        
         <div className="mb-4 pb-3 border-b border-gray-200">
             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-                {categories.map(category => ( <button key={category} onClick={() => setSelectedCategory(category)} className={`flex-shrink-0 px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${ selectedCategory === category ? 'bg-luvin-pink text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }`} > {category} </button> ))}
+                {categories.map(category => (
+                    <button
+                        key={category}
+                        onClick={() => setSelectedCategory(category)}
+                        className={`flex-shrink-0 px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${
+                            selectedCategory === category
+                                ? 'bg-luvin-pink text-white'
+                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                    >
+                        {category}
+                    </button>
+                ))}
             </div>
         </div>
+
         <div className="grid grid-cols-3 gap-2 min-h-[150px]">
-          {filteredBackgrounds.length > 0 ? ( filteredBackgrounds.map((bg) => ( <PresetBackgroundButton key={bg.id} bg={bg} isSelected={config.background.value === bg.url} onClick={() => setConfig((prev) => ({ ...prev, background: { type: 'image', value: bg.url } }))} /> )) ) : ( <p className="col-span-3 text-center text-sm text-gray-500 py-10"> Không có mẫu nào phù hợp. </p> )}
+          {filteredBackgrounds.length > 0 ? (
+            filteredBackgrounds.map((bg) => (
+              <PresetBackgroundButton
+                key={bg.id}
+                bg={bg}
+                isSelected={config.background.value === bg.url}
+                onClick={() => setConfig((prev) => ({ ...prev, background: { type: 'image', value: bg.url } }))}
+              />
+            ))
+          ) : (
+            <p className="col-span-3 text-center text-sm text-gray-500 py-10">
+              Không có mẫu nào phù hợp với lựa chọn của bạn.
+            </p>
+          )}
         </div>
       </div>
       <div className="p-4 border border-gray-200 rounded-lg">
         <h4 className="font-bold text-gray-800 mb-3">B. HOẶC TẢI ẢNH CỦA BẠN</h4>
-        <button onClick={() => bgUploadRef.current?.click()} disabled={isUploading} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-wait" > {isUploading ? 'Đang tải lên...' : 'Tải ảnh nền'} </button>
+        <button onClick={() => bgUploadRef.current?.click()} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300">
+          Tải ảnh nền
+        </button>
       </div>
+
       <div className="p-4 border border-gray-200 rounded-lg">
         <h4 className="font-bold text-gray-800 mb-2">C. THÊM CHỮ & TRANG TRÍ</h4>
         <p className="text-sm text-gray-600 mb-3">Chỉnh sửa trực tiếp trên khung xem trước.</p>
         <div className="flex gap-2">
-            <button onClick={addText} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300"> + Thêm chữ mới </button>
-            <button onClick={() => charmUploadRef.current?.click()} disabled={isUploading} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-wait" > {isUploading ? 'Đang tải...' : 'Tải ảnh nhỏ'} </button>
+            <button onClick={addText} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300">
+              + Thêm chữ mới
+            </button>
+            <button onClick={() => charmUploadRef.current?.click()} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300">
+              Tải ảnh nhỏ
+            </button>
         </div>
       </div>
       <input type="file" ref={bgUploadRef} accept="image/*" onChange={handleBgFileUpload} className="hidden" />
@@ -279,6 +334,7 @@ const PartButton: React.FC<{
     );
 };
 
+
 const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<React.SetStateAction<FrameConfig>>; allProducts: AllProducts | null }> = ({ config, setConfig, allProducts }) => {
     const [activeCharId, setActiveCharId] = useState<number | null>(config.characters[0]?.id || null);
     const [activePartType, setActivePartType] = useState<'shirt' | 'pants' | 'face' | 'hair' | 'hat'>('shirt');
@@ -301,7 +357,7 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
             shirt: LEGO_PARTS.shirt[0], 
             pants: LEGO_PARTS.pants[0],
             face: LEGO_PARTS.face[0],
-            hair: undefined, // Default is no hair
+            hair: undefined,
             x: 30 + (config.characters.length % 3) * 20, 
             y: 75, 
             rotation: 0, 
@@ -372,15 +428,10 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
     }
     
     const partTypes: { key: 'shirt' | 'pants' | 'face' | 'hair' | 'hat', label: string }[] = [
-        { key: 'shirt', label: 'Áo' },
-        { key: 'pants', label: 'Quần' },
-        { key: 'face', label: 'Mặt' },
-        { key: 'hair', label: 'Tóc' },
-        { key: 'hat', label: 'Mũ' },
+        { key: 'shirt', label: 'Áo' }, { key: 'pants', label: 'Quần' }, { key: 'face', label: 'Mặt' }, { key: 'hair', label: 'Tóc' }, { key: 'hat', label: 'Mũ' },
     ];
 
     if (!LEGO_PARTS) return <div>Đang tải chi tiết...</div>;
-
     const currentPartList = LEGO_PARTS[activePartType]?.filter(p => p.isVisible) || [];
 
     return (
@@ -861,8 +912,7 @@ const BuilderPage: React.FC<{
     showToast: (message: string, type: 'success' | 'error') => void;
     allProducts: AllProducts | null;
     allBackgrounds: AllBackgrounds | null;
-    handleUserImageUpload: (file: File, folder: 'backgrounds' | 'charms') => Promise<string | null>;
-}> = ({ config, setConfig, navigateTo, onAddToCart, showToast, allProducts, allBackgrounds, handleUserImageUpload }) => {
+}> = ({ config, setConfig, navigateTo, onAddToCart, showToast, allProducts, allBackgrounds }) => {
   const [step, setStep] = useState(1);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const previewContainerParentRef = useRef<HTMLDivElement>(null);
@@ -1035,7 +1085,7 @@ const BuilderPage: React.FC<{
     const frameOptions = allProducts.frames.filter(f => f.isVisible);
     switch (step) {
       case 1: return <Step1Frame config={config} setConfig={setConfig} frameOptions={frameOptions} />;
-      case 2: return <Step2BackgroundAndDecorations config={config} setConfig={setConfig} addText={addText} addCharm={addCharm} allBackgrounds={allBackgrounds} handleUserImageUpload={handleUserImageUpload} />;
+      case 2: return <Step2BackgroundAndDecorations config={config} setConfig={setConfig} addText={addText} addCharm={addCharm} allBackgrounds={allBackgrounds} />;
       case 3: return <Step3Characters config={config} setConfig={setConfig} allProducts={allProducts} />;
       case 4: return <Step4Summary totalPrice={totalPrice} priceBreakdown={priceBreakdown} frameName={frameOptions.find(f => f.id === config.frameId)?.name || ''} charCount={config.characters.length} onAddToCart={handleAddToCart} onBuyNow={handleBuyNow} isSaving={isSaving} />;
       default: return null;
@@ -1306,7 +1356,7 @@ interface AddressAPIResponse {
     wards?: AddressAPIResponse[];
 }
 
-const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProducts | null; onConfirmOrder: (details: CheckoutFormDetails) => void; }> = ({ cartItems, allProducts, onConfirmOrder }) => {
+const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProducts | null; onConfirmOrder: (details: OrderDetails) => void; }> = ({ cartItems, allProducts, onConfirmOrder }) => {
     const [customerName, setCustomerName] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
@@ -1331,7 +1381,9 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProduct
                 const response = await fetch('https://provinces.open-api.vn/api/p/');
                 const data: AddressAPIResponse[] = await response.json();
                 setProvinces(data);
-            } catch (error) { console.error("Failed to fetch provinces:", error); }
+            } catch (error) {
+                console.error("Failed to fetch provinces:", error);
+            }
         };
         fetchProvinces();
     }, []);
@@ -1343,10 +1395,14 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProduct
                     const response = await fetch(`https://provinces.open-api.vn/api/p/${selectedProvince.code}?depth=2`);
                     const data: AddressAPIResponse = await response.json();
                     setDistricts(data.districts || []);
-                } catch (error) { console.error("Failed to fetch districts:", error); }
+                } catch (error) {
+                    console.error("Failed to fetch districts:", error);
+                }
             };
             fetchDistricts();
-        } else { setDistricts([]); }
+        } else {
+            setDistricts([]);
+        }
     }, [selectedProvince]);
 
     useEffect(() => {
@@ -1356,10 +1412,14 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProduct
                     const response = await fetch(`https://provinces.open-api.vn/api/d/${selectedDistrict.code}?depth=2`);
                     const data: AddressAPIResponse = await response.json();
                     setWards(data.wards || []);
-                } catch (error) { console.error("Failed to fetch wards:", error); }
+                } catch (error) {
+                    console.error("Failed to fetch wards:", error);
+                }
             };
             fetchWards();
-        } else { setWards([]); }
+        } else {
+            setWards([]);
+        }
     }, [selectedDistrict]);
     
     const { subtotal, shippingCost, packagingFee, total, amountToPay } = useMemo(() => {
@@ -1389,8 +1449,15 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProduct
         const randomPart = Math.floor(Math.random() * 100).toString().padStart(2, '0');
         const orderId = `#TL${timestamp}${randomPart}`;
         const fullAddress = `${streetAddress}, ${selectedWard.name}, ${selectedDistrict.name}, ${selectedProvince.name}`;
+        const BANK_ID = '970407';
+        const ACCOUNT_NO = '65838666666';
+        const ACCOUNT_NAME = 'THE LUVIN'; 
+        const QR_TEMPLATE = 'compact2';
+        const amount = Math.round(amountToPay);
+        const description = orderId.replace('#', '');
+        const vietQRUrl = `https://img.vietqr.io/image/${BANK_ID}-${ACCOUNT_NO}-${QR_TEMPLATE}.png?amount=${amount}&addInfo=${encodeURIComponent(description)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
         
-        const checkoutDetails: CheckoutFormDetails = {
+        const orderDetails: OrderDetails = {
             orderId,
             customer: { name: customerName, phone: customerPhone, email: customerEmail, address: fullAddress },
             items: cartItems,
@@ -1398,13 +1465,12 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProduct
             paymentMethod: paymentMethod === 'deposit' ? 'Cọc 70%' : 'Thanh toán toàn bộ',
             shippingMethod,
             notes: '',
+            vietQRUrl,
+            transferContent: description,
             desiredDeliveryDate,
             createdAt: new Date().toISOString(),
-            // These will be generated on the confirmation page based on the final order data
-            vietQRUrl: '',
-            transferContent: '',
         };
-        onConfirmOrder(checkoutDetails);
+        onConfirmOrder(orderDetails);
     };
 
     const formInputClasses = "w-full p-2.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-luvin-pink focus:border-luvin-pink";
@@ -1466,34 +1532,51 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProduct
                                </div>
                            </div>
                         </div>
+
                         <div className="bg-white p-6 rounded-lg border border-gray-200">
                            <h3 className="text-lg font-semibold mb-3">Phương thức vận chuyển</h3>
                            <div className="space-y-3">
                              <label className="flex items-center gap-3 p-3 border rounded-md cursor-pointer hover:bg-gray-50">
                                <input type="radio" name="shipping" checked={shippingMethod === 'standard'} onChange={() => setShippingMethod('standard')} className="w-4 h-4 text-luvin-pink focus:ring-luvin-pink" />
-                               <div className="flex-grow"><p className="font-medium text-sm">Giao hàng thường</p><p className="text-xs text-gray-500">Nhận hàng sau 2-4 ngày</p></div>
+                               <div className="flex-grow">
+                                 <p className="font-medium text-sm">Giao hàng thường</p>
+                                 <p className="text-xs text-gray-500">Nhận hàng sau 2-4 ngày</p>
+                               </div>
                                <p className="text-sm font-semibold">{formatCurrency(25000)}</p>
                              </label>
                              <label className="flex items-center gap-3 p-3 border rounded-md cursor-pointer hover:bg-gray-50">
                                <input type="radio" name="shipping" checked={shippingMethod === 'express'} onChange={() => setShippingMethod('express')} className="w-4 h-4 text-luvin-pink focus:ring-luvin-pink" />
-                               <div className="flex-grow"><p className="font-medium text-sm">Giao hàng nhanh</p><p className="text-xs text-gray-500">Nhận hàng trong ngày (nội thành)</p></div>
+                               <div className="flex-grow">
+                                 <p className="font-medium text-sm">Giao hàng nhanh</p>
+                                 <p className="text-xs text-gray-500">Nhận hàng trong ngày (nội thành)</p>
+                               </div>
                                <p className="text-sm font-semibold">{formatCurrency(45000)}</p>
                              </label>
                              <label className="flex items-center gap-3 p-3 border rounded-md cursor-pointer hover:bg-gray-50">
                                <input type="radio" name="shipping" checked={shippingMethod === 'book'} onChange={() => setShippingMethod('book')} className="w-4 h-4 text-luvin-pink focus:ring-luvin-pink" />
-                               <div className="flex-grow"><p className="font-medium text-sm">Book ship (Grab/Ahamove)</p><p className="text-xs text-gray-500">Vui lòng liên hệ shop để được hỗ trợ</p></div>
+                               <div className="flex-grow">
+                                 <p className="font-medium text-sm">Book ship (Grab/Ahamove)</p>
+                                 <p className="text-xs text-gray-500">Vui lòng liên hệ shop để được hỗ trợ</p>
+                               </div>
                                <p className="text-sm font-semibold">Tự thỏa thuận</p>
                              </label>
                            </div>
                         </div>
+
                         <div className="bg-white p-6 rounded-lg border border-gray-200">
                            <h3 className="text-lg font-semibold mb-3">Hộp quà tặng</h3>
                            <div className="bg-gray-50 p-3 flex items-center justify-between rounded-md border">
                                <div className="flex items-center gap-3">
                                    <img src={GENERAL_ASSETS.giftbox} alt="gift box" className="w-16 h-16 rounded object-cover"/>
-                                   <div><p className="font-semibold text-sm">Gói quà chuyên nghiệp</p><p className="text-xs text-gray-500">Bao gồm hộp, nơ, và thiệp</p></div>
+                                   <div>
+                                       <p className="font-semibold text-sm">Gói quà chuyên nghiệp</p>
+                                       <p className="text-xs text-gray-500">Bao gồm hộp, nơ, và thiệp</p>
+                                   </div>
                                </div>
-                               <div className="flex items-center gap-4"><p className="font-semibold text-sm">{formatCurrency(30000)}</p><input type="checkbox" className="h-5 w-5 rounded text-luvin-pink focus:ring-luvin-pink" checked={isPackagingSelected} onChange={(e) => setIsPackagingSelected(e.target.checked)} /></div>
+                               <div className="flex items-center gap-4">
+                                  <p className="font-semibold text-sm">{formatCurrency(30000)}</p>
+                                  <input type="checkbox" className="h-5 w-5 rounded text-luvin-pink focus:ring-luvin-pink" checked={isPackagingSelected} onChange={(e) => setIsPackagingSelected(e.target.checked)} />
+                               </div>
                            </div>
                         </div>
                     </div>
@@ -1501,21 +1584,26 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProduct
                     <div className="lg:col-span-5">
                        <div className="lg:sticky lg:top-24 bg-white p-6 rounded-lg border border-gray-200">
                           <h2 className="text-xl font-bold mb-4 border-b pb-3">Đơn hàng của bạn</h2>
+                          
                           <div className="space-y-3 max-h-48 overflow-y-auto pr-2 mb-4">
-                              {cartItems.map((item, index) => (
-                                  <div key={index} className="flex justify-between items-center text-sm">
-                                      <div className="flex items-center gap-3">
-                                          {item.previewImageUrl && <img src={item.previewImageUrl} alt="Preview" className="w-12 h-12 rounded object-contain bg-gray-100 p-0.5" />}
-                                          <p>Khung tùy chỉnh x 1</p>
+                              {cartItems.map((item, index) => {
+                                  return (
+                                      <div key={index} className="flex justify-between items-center text-sm">
+                                          <div className="flex items-center gap-3">
+                                              {item.previewImageUrl && <img src={item.previewImageUrl} alt="Preview" className="w-12 h-12 rounded object-contain bg-gray-100 p-0.5" />}
+                                              <p>Khung tùy chỉnh x 1</p>
+                                          </div>
                                       </div>
-                                  </div>
-                              ))}
+                                  );
+                              })}
                           </div>
+
                           <div className="space-y-2 py-4 border-t">
                              <div className="flex justify-between text-sm"><p>Tạm tính:</p><p className="font-medium">{formatCurrency(subtotal)}</p></div>
                              {isPackagingSelected && <div className="flex justify-between text-sm"><p>Hộp quà:</p><p className="font-medium">{formatCurrency(packagingFee)}</p></div>}
                              <div className="flex justify-between text-sm"><p>Phí vận chuyển:</p><p className="font-medium">{shippingMethod === 'book' ? 'Tự thỏa thuận' : formatCurrency(shippingCost)}</p></div>
                           </div>
+
                           <div className="py-4 border-t">
                              <h4 className="font-semibold mb-3">Phương thức thanh toán</h4>
                              <div className="space-y-3">
@@ -1529,20 +1617,31 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProduct
                                  </label>
                              </div>
                           </div>
+
                           <div className="border-t mt-4 pt-4 space-y-2">
-                            <div className="flex justify-between text-base font-semibold"><p>Tổng cộng:</p><p>{formatCurrency(total)}</p></div>
-                            <div className="flex justify-between text-lg font-bold text-luvin-pink items-center"><p>Cần thanh toán:</p><p className="text-xl">{formatCurrency(amountToPay)}</p></div>
+                            <div className="flex justify-between text-base font-semibold">
+                                <p>Tổng cộng:</p>
+                                <p>{formatCurrency(total)}</p>
+                            </div>
+                            <div className="flex justify-between text-lg font-bold text-luvin-pink items-center">
+                                <p>Cần thanh toán:</p>
+                                <p className="text-xl">{formatCurrency(amountToPay)}</p>
+                            </div>
                           </div>
-                           <button onClick={handleProceedToConfirmation} className="w-full bg-luvin-pink text-gray-800 font-bold py-3 rounded-md mt-4 hover:opacity-90 uppercase tracking-wider text-base">Đặt hàng</button>
+
+                           <button onClick={handleProceedToConfirmation} className="w-full bg-luvin-pink text-gray-800 font-bold py-3 rounded-md mt-4 hover:opacity-90 uppercase tracking-wider text-base">
+                               Đặt hàng
+                           </button>
                        </div>
                     </div>
+
                 </div>
             </div>
         </div>
     );
 }
 
-const OrderConfirmationPage: React.FC<{ details: CheckoutFormDetails; allProducts: AllProducts | null; }> = ({ details, allProducts }) => {
+const OrderConfirmationPage: React.FC<{ details: OrderDetails; allProducts: AllProducts | null; }> = ({ details, allProducts }) => {
     return (
         <div className="bg-gray-50">
             <div className="container mx-auto px-4 sm:px-6 py-8">
@@ -1562,6 +1661,7 @@ const OrderConfirmationPage: React.FC<{ details: CheckoutFormDetails; allProduct
                     
                     <div className="mt-6 border-t pt-6 text-left space-y-4">
                         <h2 className="text-xl font-bold mb-3">Tóm tắt đơn hàng</h2>
+                        
                         <div className="space-y-3 max-h-60 overflow-y-auto pr-2 border-b pb-4">
                              {details.items.map((item, index) => {
                                 const { totalPrice } = calculatePrice(item, allProducts);
@@ -1576,14 +1676,22 @@ const OrderConfirmationPage: React.FC<{ details: CheckoutFormDetails; allProduct
                                  );
                              })}
                         </div>
+
                         <div className="space-y-2 text-sm">
                            <div className="flex justify-between"><p>Tạm tính:</p><p className="font-medium">{formatCurrency(details.pricing.subtotal)}</p></div>
                            {details.pricing.packagingFee > 0 && <div className="flex justify-between"><p>Hộp quà:</p><p className="font-medium">{formatCurrency(details.pricing.packagingFee)}</p></div>}
                            <div className="flex justify-between"><p>Phí vận chuyển:</p><p className="font-medium">{details.shippingMethod === 'book' ? 'Tự thỏa thuận' : formatCurrency(details.pricing.shippingCost)}</p></div>
                         </div>
+
                         <div className="border-t mt-4 pt-4 space-y-2">
-                          <div className="flex justify-between text-base font-bold text-gray-800"><p>Tổng cộng:</p><p>{formatCurrency(details.pricing.total)}</p></div>
-                          <div className="flex justify-between text-xl font-bold text-luvin-pink"><p>Cần thanh toán:</p><p>{formatCurrency(details.pricing.paid)}</p></div>
+                          <div className="flex justify-between text-base font-bold text-gray-800">
+                              <p>Tổng cộng:</p>
+                              <p>{formatCurrency(details.pricing.total)}</p>
+                          </div>
+                          <div className="flex justify-between text-xl font-bold text-luvin-pink">
+                              <p>Cần thanh toán:</p>
+                              <p>{formatCurrency(details.pricing.paid)}</p>
+                          </div>
                           {details.pricing.remaining > 0 && 
                             <div className="flex justify-between text-sm text-gray-600">
                                 <p>Còn lại (thanh toán khi nhận hàng):</p>
@@ -1591,12 +1699,16 @@ const OrderConfirmationPage: React.FC<{ details: CheckoutFormDetails; allProduct
                             </div>
                           }
                         </div>
+                        
                         <div className="border-t mt-4 pt-4 text-sm space-y-1 text-gray-700">
                             <p><strong>Giao đến:</strong> {details.customer.name}</p>
                             <p><strong>Địa chỉ:</strong> {details.customer.address}</p>
                             <p><strong>SĐT:</strong> {details.customer.phone}</p>
-                            {details.desiredDeliveryDate && (<p><strong>Ngày nhận mong muốn:</strong> {new Date(details.desiredDeliveryDate).toLocaleDateString('vi-VN')}</p>)}
+                            {details.desiredDeliveryDate && (
+                                <p><strong>Ngày nhận mong muốn:</strong> {new Date(details.desiredDeliveryDate).toLocaleDateString('vi-VN')}</p>
+                            )}
                         </div>
+
                     </div>
                 </div>
             </div>
@@ -1604,26 +1716,9 @@ const OrderConfirmationPage: React.FC<{ details: CheckoutFormDetails; allProduct
     );
 }
 
-const ContactPage: React.FC = () => {
-    return ( <div className="container mx-auto px-6 py-8"><h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Liên hệ The Luvin</h1><div className="bg-white p-8 rounded-lg shadow-lg max-w-3xl mx-auto text-center font-body"><p className="text-lg text-gray-700 mb-6">Chúng tôi luôn sẵn lòng lắng nghe và hỗ trợ bạn. Đừng ngần ngại liên hệ với The Luvin qua các kênh dưới đây.</p><div className="space-y-4 text-left inline-block text-base sm:text-lg"><p className="flex items-center"><span className="font-bold w-24">Địa chỉ:</span> 123 Phố Hàng Bông, Hoàn Kiếm, Hà Nội</p><p className="flex items-center"><span className="font-bold w-24">Hotline:</span> 0987 654 321</p><p className="flex items-center"><span className="font-bold w-24">Email:</span> hello@theluvin.com</p></div><div className="flex justify-center space-x-4 sm:space-x-6 mt-8"><a href="#" className="bg-blue-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-blue-600 transition-colors">Zalo</a><a href="#" className="bg-purple-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-purple-600 transition-colors">Messenger</a><a href="#" className="bg-pink-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-pink-600 transition-colors">Instagram</a></div></div></div> );
-}
-
-const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => {
-    useEffect(() => {
-        const timer = setTimeout(onClose, 3000);
-        return () => clearTimeout(timer);
-    }, [onClose]);
-
-    return (
-        <div className={`fixed top-5 right-5 z-[100] px-6 py-3 rounded-lg shadow-lg text-white ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
-            {message}
-        </div>
-    );
-};
-
-const OrderLookupPage: React.FC<{}> = () => {
+const OrderLookupPage: React.FC<{ allProducts: AllProducts | null }> = ({ allProducts }) => {
     const [orderIdInput, setOrderIdInput] = useState('');
-    const [foundOrder, setFoundOrder] = useState<Order | null>(null);
+    const [foundOrder, setFoundOrder] = useState<StoredOrder | null>(null);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
@@ -1633,7 +1728,7 @@ const OrderLookupPage: React.FC<{}> = () => {
         setError('');
         setFoundOrder(null);
         
-        const term = orderIdInput.trim().replace('#', '');
+        const term = orderIdInput.trim();
         if (!term) {
             setError('Vui lòng nhập mã đơn hàng.');
             setIsLoading(false);
@@ -1643,7 +1738,7 @@ const OrderLookupPage: React.FC<{}> = () => {
         const { data, error } = await supabase
             .from('orders')
             .select('*')
-            .eq('order_id_str', `#${term}`)
+            .eq('order_id_str', term)
             .single();
 
         setIsLoading(false);
@@ -1651,7 +1746,7 @@ const OrderLookupPage: React.FC<{}> = () => {
             setError('Không tìm thấy đơn hàng với mã này.');
             console.error(error);
         } else {
-            setFoundOrder(data as Order);
+            setFoundOrder({ status: data.status, details: data.details });
         }
     };
 
@@ -1667,7 +1762,10 @@ const OrderLookupPage: React.FC<{}> = () => {
                     return (
                         <React.Fragment key={status}>
                             <div className="flex flex-col items-center">
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${ isCompleted ? 'bg-green-500 border-green-500 text-white' : isActive ? 'border-luvin-pink bg-pink-100' : 'border-gray-300 bg-gray-100' }`}>
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
+                                    isCompleted ? 'bg-green-500 border-green-500 text-white' : 
+                                    isActive ? 'border-luvin-pink bg-pink-100' : 'border-gray-300 bg-gray-100'
+                                }`}>
                                     {isCompleted ? '✓' : isActive ? <div className="w-3 h-3 bg-luvin-pink rounded-full animate-pulse"></div> : '...'}
                                 </div>
                                 <p className={`mt-2 font-semibold ${isActive ? 'text-luvin-pink' : 'text-gray-500'}`}>{status}</p>
@@ -1684,7 +1782,13 @@ const OrderLookupPage: React.FC<{}> = () => {
         <div className="container mx-auto px-6 py-8 max-w-3xl font-body">
             <h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Tra cứu đơn hàng</h1>
             <form onSubmit={handleLookup} className="bg-white p-6 rounded-lg shadow-md flex flex-col sm:flex-row gap-4">
-                <input type="text" value={orderIdInput} onChange={e => setOrderIdInput(e.target.value)} placeholder="Nhập mã đơn hàng (vd: TL1234)" className="flex-grow p-3 border border-pink-200 rounded-lg focus:ring-2 focus:ring-luvin-pink" />
+                <input
+                    type="text"
+                    value={orderIdInput}
+                    onChange={e => setOrderIdInput(e.target.value)}
+                    placeholder="Nhập mã đơn hàng (vd: #TL1234)"
+                    className="flex-grow p-3 border border-pink-200 rounded-lg focus:ring-2 focus:ring-luvin-pink"
+                />
                 <button type="submit" disabled={isLoading} className="bg-luvin-pink text-gray-800 font-bold py-3 px-6 rounded-lg hover:opacity-90 transition-colors disabled:opacity-50">
                     {isLoading ? 'Đang tìm...' : 'Tra cứu'}
                 </button>
@@ -1694,20 +1798,73 @@ const OrderLookupPage: React.FC<{}> = () => {
 
             {foundOrder && (
                 <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
-                    <div>
-                        <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b pb-4 mb-4">
-                            <div>
-                                <h2 className="text-xl font-bold text-luvin-pink">Chi tiết đơn hàng</h2>
-                                <p className="font-mono text-gray-700">{foundOrder.order_id_str}</p>
+                        <div>
+                            <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b pb-4 mb-4">
+                                <div>
+                                    <h2 className="text-xl font-bold text-luvin-pink">Chi tiết đơn hàng</h2>
+                                    <p className="font-mono text-gray-700">{foundOrder.details.orderId}</p>
+                                </div>
+                                <div className="mt-2 sm:mt-0 px-3 py-1 rounded-full text-sm font-semibold bg-pink-100 text-luvin-pink">
+                                    {foundOrder.status}
+                                </div>
                             </div>
-                            <div className="mt-2 sm:mt-0 px-3 py-1 rounded-full text-sm font-semibold bg-pink-100 text-luvin-pink">
-                                {foundOrder.status}
+
+                            <StatusTimeline currentStatus={foundOrder.status} />
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <h3 className="font-semibold text-gray-800 mb-2">Thông tin giao hàng</h3>
+                                    <div className="text-sm text-gray-600 space-y-1">
+                                        <p><strong>Họ tên:</strong> {foundOrder.details.customer.name}</p>
+                                        <p><strong>SĐT:</strong> {foundOrder.details.customer.phone}</p>
+                                        <p><strong>Địa chỉ:</strong> {foundOrder.details.customer.address}</p>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h3 className="font-semibold text-gray-800 mb-2">Tóm tắt thanh toán</h3>
+                                    <div className="text-sm text-gray-600 space-y-1">
+                                        <p><strong>Tổng cộng:</strong> {formatCurrency(foundOrder.details.pricing.total)}</p>
+                                        <p><strong>Đã thanh toán:</strong> {formatCurrency(foundOrder.details.pricing.paid)}</p>
+                                        <p><strong>Còn lại:</strong> {formatCurrency(foundOrder.details.pricing.remaining)}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="mt-6 border-t pt-4">
+                                <h3 className="font-semibold text-gray-800 mb-3">Sản phẩm</h3>
+                                {foundOrder.details.items.map((item, index) => (
+                                    <div key={index} className="flex items-center gap-4 bg-gray-50 p-3 rounded-lg">
+                                        <div className="w-24 h-24 flex-shrink-0 bg-white rounded p-1 border">
+                                            {item.previewImageUrl && <img src={item.previewImageUrl} alt="Preview" className="w-full h-full object-contain" />}
+                                        </div>
+                                        <div>
+                                            <p className="font-semibold">Khung LEGO tùy chỉnh</p>
+                                            <p className="text-xs text-gray-500">Kích thước: {allProducts?.frames.find(f => f.id === item.frameId)?.name}</p>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
-                        <StatusTimeline currentStatus={foundOrder.status} />
-                    </div>
                 </div>
             )}
+        </div>
+    );
+};
+
+
+const ContactPage: React.FC = () => {
+    return ( <div className="container mx-auto px-6 py-8"><h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Liên hệ The Luvin</h1><div className="bg-white p-8 rounded-lg shadow-lg max-w-3xl mx-auto text-center font-body"><p className="text-lg text-gray-700 mb-6">Chúng tôi luôn sẵn lòng lắng nghe và hỗ trợ bạn. Đừng ngần ngại liên hệ với The Luvin qua các kênh dưới đây.</p><div className="space-y-4 text-left inline-block text-base sm:text-lg"><p className="flex items-center"><span className="font-bold w-24">Địa chỉ:</span> 123 Phố Hàng Bông, Hoàn Kiếm, Hà Nội</p><p className="flex items-center"><span className="font-bold w-24">Hotline:</span> 0987 654 321</p><p className="flex items-center"><span className="font-bold w-24">Email:</span> hello@theluvin.com</p></div><div className="flex justify-center space-x-4 sm:space-x-6 mt-8"><a href="#" className="bg-blue-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-blue-600 transition-colors">Zalo</a><a href="#" className="bg-purple-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-purple-600 transition-colors">Messenger</a><a href="#" className="bg-pink-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-pink-600 transition-colors">Instagram</a></div></div></div> );
+}
+
+const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => {
+    useEffect(() => {
+        const timer = setTimeout(onClose, 3000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+
+    return (
+        <div className={`fixed top-5 right-5 z-[100] px-6 py-3 rounded-lg shadow-lg text-white ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+            {message}
         </div>
     );
 };
@@ -1737,7 +1894,7 @@ const App: React.FC = () => {
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [checkoutDetails, setCheckoutDetails] = useState<CheckoutFormDetails | null>(null);
+  const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
       setToast({ message, type });
@@ -1748,6 +1905,7 @@ const App: React.FC = () => {
     try {
         const productsPromise = supabase.from('products').select('*');
         const backgroundsPromise = supabase.from('backgrounds').select('*');
+
         const [{ data: productsData, error: productsError }, { data: backgroundsData, error: backgroundsError }] = await Promise.all([productsPromise, backgroundsPromise]);
 
         if (productsError) throw productsError;
@@ -1755,15 +1913,17 @@ const App: React.FC = () => {
         
         const products: AllProducts = { frames: [], lego_parts: { hair: [], face: [], shirt: [], pants: [], hat: [], accessory: [], pet: [] } };
         (productsData || []).forEach(p => {
-            if (p.type === 'frame') products.frames.push(p as any);
-            else if ((products.lego_parts as any)[p.type]) (products.lego_parts as any)[p.type].push(p as any);
+            if (p.type === 'frame') products.frames.push(p as FrameOption);
+            // @ts-ignore
+            else if (products.lego_parts[p.type]) products.lego_parts[p.type].push(p as LegoPart);
         });
 
         const backgrounds: AllBackgrounds = { square: [], rectangle: [] };
         (backgroundsData || []).forEach(b => {
-            if (b.type === 'square') backgrounds.square.push(b as any);
-            else if (b.type === 'rectangle') backgrounds.rectangle.push(b as any);
+            if (b.type === 'square') backgrounds.square.push(b as BackgroundOption);
+            else if (b.type === 'rectangle') backgrounds.rectangle.push(b as BackgroundOption);
         });
+
         setAllProducts(products);
         setAllBackgrounds(backgrounds);
     } catch (error) {
@@ -1774,99 +1934,74 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleUserImageUpload = async (file: File, folder: 'backgrounds' | 'charms'): Promise<string | null> => {
+  useEffect(() => {
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  useEffect(() => {
     try {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const filePath = `user_uploads/${folder}/${fileName}`;
-        const { error: uploadError } = await supabase.storage.from('assets').upload(filePath, file);
-        if (uploadError) throw uploadError;
-        const { data } = supabase.storage.from('assets').getPublicUrl(filePath);
-        if (!data.publicUrl) throw new Error("Could not get public URL.");
-        return data.publicUrl;
-    } catch (error) {
-        console.error(`Error uploading image:`, error);
-        showToast('Lỗi khi tải ảnh lên.', 'error');
-        return null;
-    }
+        const { previewImageUrl, ...configToSave } = frameConfig;
+        localStorage.setItem('luvinFrameConfig', JSON.stringify(configToSave));
+    } catch (error) { console.error("Failed to save frameConfig", error); }
+  }, [frameConfig]);
+
+  useEffect(() => {
+    try {
+        localStorage.setItem('luvinCartItems', JSON.stringify(cartItems));
+    } catch (error) { console.error("Failed to save cartItems", error); }
+  }, [cartItems]);
+
+  const handleAddToCart = (config: FrameConfig) => {
+      setCartItems(prev => [...prev, config]);
+      showToast('Đã thêm vào giỏ hàng!');
   };
 
+  const handleRemoveFromCart = (indexToRemove: number) => {
+      setCartItems(prev => prev.filter((_, index) => index !== indexToRemove));
+  };
 
-  useEffect(() => { fetchInitialData(); }, [fetchInitialData]);
-  useEffect(() => { try { const { previewImageUrl, ...c } = frameConfig; localStorage.setItem('luvinFrameConfig', JSON.stringify(c)); } catch (e) { console.error(e); } }, [frameConfig]);
-  useEffect(() => { try { localStorage.setItem('luvinCartItems', JSON.stringify(cartItems)); } catch (e) { console.error(e); } }, [cartItems]);
+  const navigateTo = useCallback((newPage: Page) => {
+    setPage(newPage);
+    window.scrollTo(0, 0);
+  }, []);
 
-  const handleAddToCart = (config: FrameConfig) => { setCartItems(prev => [...prev, config]); showToast('Đã thêm vào giỏ hàng!'); };
-  const handleRemoveFromCart = (indexToRemove: number) => { setCartItems(prev => prev.filter((_, index) => index !== indexToRemove)); };
-  const navigateTo = useCallback((newPage: Page) => { setPage(newPage); window.scrollTo(0, 0); }, []);
-
-  const handleConfirmOrder = async (details: CheckoutFormDetails) => {
-      // Add QR generation logic here before setting state
-        const BANK_ID = '970407'; // Techcombank
-        const ACCOUNT_NO = '65838666666';
-        const ACCOUNT_NAME = 'THE LUVIN'; 
-        const QR_TEMPLATE = 'compact2';
-        const amount = Math.round(details.pricing.paid);
-        const description = details.orderId.replace('#', '');
-        const vietQRUrl = `https://img.vietqr.io/image/${BANK_ID}-${ACCOUNT_NO}-${QR_TEMPLATE}.png?amount=${amount}&addInfo=${encodeURIComponent(description)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
-
-      const finalDetails = { ...details, vietQRUrl, transferContent: description };
-      
-      const { data: newOrder, error: orderError } = await supabase
+  const handleConfirmOrder = async (details: OrderDetails) => {
+      const { data, error } = await supabase
         .from('orders')
-        .insert({
-          order_id_str: finalDetails.orderId,
-          status: 'Chờ thanh toán',
-          customer_name: finalDetails.customer.name,
-          customer_phone: finalDetails.customer.phone,
-          customer_email: finalDetails.customer.email,
-          customer_address: finalDetails.customer.address,
-          shipping_method: finalDetails.shippingMethod,
-          shipping_cost: finalDetails.pricing.shippingCost,
-          packaging_fee: finalDetails.pricing.packagingFee,
-          total_price: finalDetails.pricing.total,
-          amount_paid: finalDetails.pricing.paid,
-          amount_remaining: finalDetails.pricing.remaining,
-          payment_method: finalDetails.paymentMethod,
-          desired_delivery_date: finalDetails.desiredDeliveryDate,
-          notes: finalDetails.notes,
-          created_at: finalDetails.createdAt,
-        })
-        .select('id')
-        .single();
+        .insert([{ order_id_str: details.orderId, status: 'Chờ thanh toán', details }]);
       
-      if (orderError || !newOrder) { showToast('Không thể tạo đơn hàng, vui lòng thử lại.', 'error'); console.error('Order insert error:', orderError); return; }
-      
-      const orderItemsData = finalDetails.items.map(item => ({
-        order_id: newOrder.id,
-        frame_config: item,
-        preview_image_url: item.previewImageUrl,
-        price: calculatePrice(item, allProducts).totalPrice
-      }));
-      
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItemsData);
-      if (itemsError) { showToast('Lỗi khi lưu chi tiết đơn hàng.', 'error'); console.error('Order items insert error:', itemsError); return; }
-      
-      setCheckoutDetails(finalDetails);
-      setCartItems([]);
-      navigateTo('order-confirmation');
+      if (error) {
+        showToast('Không thể tạo đơn hàng, vui lòng thử lại.', 'error');
+        console.error('Supabase order insert error:', error);
+      } else {
+        setOrderDetails(details);
+        setCartItems([]);
+        navigateTo('order-confirmation');
+      }
   };
   
   const renderCurrentPage = () => {
-    if (isAuthLoading || isDataLoading) { return <div className="flex items-center justify-center h-screen"><p>Đang tải ứng dụng...</p></div>; }
+    if (isAuthLoading || isDataLoading) {
+      return <div className="flex items-center justify-center h-screen"><p>Đang tải ứng dụng...</p></div>;
+    }
+
     const adminPages: Page[] = ['admin-dashboard', 'admin-orders', 'admin-products', 'admin-backgrounds'];
-    if (adminPages.includes(page) && !isAuthenticated) { return <LoginPage navigateTo={navigateTo} showToast={showToast} />; }
+    if (adminPages.includes(page) && !isAuthenticated) {
+      return <LoginPage navigateTo={navigateTo} showToast={showToast} />;
+    }
+
     switch (page) {
       case 'home': return <HomePage navigateTo={navigateTo} />;
-      case 'builder': return <BuilderPage config={frameConfig} setConfig={setFrameConfig} navigateTo={navigateTo} onAddToCart={handleAddToCart} showToast={showToast} allProducts={allProducts} allBackgrounds={allBackgrounds} handleUserImageUpload={handleUserImageUpload} />;
+      case 'builder': return <BuilderPage config={frameConfig} setConfig={setFrameConfig} navigateTo={navigateTo} onAddToCart={handleAddToCart} showToast={showToast} allProducts={allProducts} allBackgrounds={allBackgrounds} />;
       case 'collection': return <CollectionPage navigateTo={navigateTo} setConfig={setFrameConfig} allProducts={allProducts} />;
       case 'cart': return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allProducts={allProducts} navigateTo={navigateTo} />;
       case 'checkout': return <CheckoutPage cartItems={cartItems} allProducts={allProducts} onConfirmOrder={handleConfirmOrder} />;
-      case 'order-confirmation': return checkoutDetails ? <OrderConfirmationPage details={checkoutDetails} allProducts={allProducts} /> : <HomePage navigateTo={navigateTo} />;
-      case 'order-lookup': return <OrderLookupPage />;
+      case 'order-confirmation': return orderDetails ? <OrderConfirmationPage details={orderDetails} allProducts={allProducts} /> : <CheckoutPage cartItems={cartItems} allProducts={allProducts} onConfirmOrder={handleConfirmOrder} />;
+      case 'order-lookup': return <OrderLookupPage allProducts={allProducts} />;
+      case 'contact': return <ContactPage />;
       case 'login': return <LoginPage navigateTo={navigateTo} showToast={showToast} />;
       case 'admin-dashboard': return <AdminLayout navigateTo={navigateTo} page={page}><DashboardPage showToast={showToast} /></AdminLayout>;
-      case 'admin-orders': return <AdminLayout navigateTo={navigateTo} page={page}><OrderManagementPage showToast={showToast} /></AdminLayout>;
+      case 'admin-orders': return <AdminLayout navigateTo={navigateTo} page={page}><AdminPage showToast={showToast} /></AdminLayout>;
       case 'admin-products': return <AdminLayout navigateTo={navigateTo} page={page}><ProductManagementPage allProducts={allProducts} onProductUpdate={fetchInitialData} showToast={showToast} /></AdminLayout>;
       case 'admin-backgrounds': return <AdminLayout navigateTo={navigateTo} page={page}><AdminBackgroundsPage allBackgrounds={allBackgrounds} onUpdate={fetchInitialData} showToast={showToast} /></AdminLayout>;
       default: return <HomePage navigateTo={navigateTo} />;
@@ -1877,8 +2012,17 @@ const App: React.FC = () => {
     <div className={`min-h-screen flex flex-col text-gray-800 bg-white`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} />
-      <CartPanel isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allProducts={allProducts} navigateTo={navigateTo} />
-      <main className="flex-grow">{renderCurrentPage()}</main>
+      <CartPanel 
+        isOpen={isCartOpen} 
+        onClose={() => setIsCartOpen(false)}
+        cartItems={cartItems}
+        onRemoveItem={handleRemoveFromCart}
+        allProducts={allProducts}
+        navigateTo={navigateTo}
+      />
+      <main className="flex-grow">
+        {renderCurrentPage()}
+      </main>
       <Footer />
     </div>
   );

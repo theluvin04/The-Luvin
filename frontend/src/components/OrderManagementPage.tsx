@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import type { StoredOrder, OrderStatus } from '../types';
-import { API_BASE_URL } from '../App';
+import type { Order, OrderStatus } from '../types';
+import { supabase } from '../supabase';
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 
@@ -14,27 +14,32 @@ const statusColors: Record<OrderStatus, string> = {
 };
 const ALL_STATUSES: OrderStatus[] = ['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng', 'Đã hủy'];
 
-type SortKey = 'createdAt' | 'desiredDeliveryDate' | 'total';
+type SortKey = 'created_at' | 'desired_delivery_date' | 'total_price';
 type SortDirection = 'asc' | 'desc';
 
 const OrderManagementPage: React.FC<{ showToast: (message: string, type: 'success' | 'error') => void; }> = ({ showToast }) => {
-    const [orders, setOrders] = useState<StoredOrder[]>([]);
+    const [orders, setOrders] = useState<Order[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
-    const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'createdAt', direction: 'desc' });
+    const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'created_at', direction: 'desc' });
 
     const fetchOrders = useCallback(async () => {
         setIsLoading(true);
         try {
-            const response = await fetch(`${API_BASE_URL}/api/orders`);
-            if (!response.ok) throw new Error('Failed to fetch orders');
-            const data: StoredOrder[] = await response.json();
-            setOrders(data);
-        } catch (err) {
+            const { data, error } = await supabase
+                .from('orders')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            setOrders(data as Order[]);
+            setError(null);
+        } catch (err: any) {
             setError('Không thể tải danh sách đơn hàng.');
+            console.error(err);
         } finally {
             setIsLoading(false);
         }
@@ -42,19 +47,20 @@ const OrderManagementPage: React.FC<{ showToast: (message: string, type: 'succes
 
     useEffect(() => { fetchOrders(); }, [fetchOrders]);
     
-    const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
+    const handleStatusChange = async (orderIdStr: string, newStatus: OrderStatus) => {
         try {
-            const response = await fetch(`${API_BASE_URL}/api/orders/${orderId.replace('#', '')}/status`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: newStatus }),
-            });
-            if (!response.ok) throw new Error('Failed to update status');
+            const { error } = await supabase
+                .from('orders')
+                .update({ status: newStatus })
+                .eq('order_id_str', orderIdStr);
+
+            if (error) throw error;
             
             showToast('Cập nhật trạng thái thành công!', 'success');
-            setOrders(prev => prev.map(o => o.details.orderId === orderId ? { ...o, status: newStatus } : o));
+            setOrders(prev => prev.map(o => o.order_id_str === orderIdStr ? { ...o, status: newStatus } : o));
         } catch (err) {
             showToast('Lỗi khi cập nhật trạng thái.', 'error');
+            console.error(err);
         }
     };
     
@@ -63,18 +69,30 @@ const OrderManagementPage: React.FC<{ showToast: (message: string, type: 'succes
     };
 
     const sortedAndFilteredOrders = useMemo(() => {
-        return [...orders]
-            .sort((a, b) => {
-                let aValue = sortConfig.key === 'total' ? a.details.pricing.total : new Date(a.details[sortConfig.key] || 0).getTime();
-                let bValue = sortConfig.key === 'total' ? b.details.pricing.total : new Date(b.details[sortConfig.key] || 0).getTime();
-                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        let sortableOrders = [...orders];
+
+        sortableOrders.sort((a, b) => {
+            const aValue = a[sortConfig.key] || 0;
+            const bValue = b[sortConfig.key] || 0;
+            
+            if (sortConfig.key === 'total_price') {
+                if ((aValue as number) < (bValue as number)) return sortConfig.direction === 'asc' ? -1 : 1;
+                if ((aValue as number) > (bValue as number)) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
-            })
+            }
+            
+            const aDate = new Date(aValue as string).getTime();
+            const bDate = new Date(bValue as string).getTime();
+            if (aDate < bDate) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (aDate > bDate) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+        
+        return sortableOrders
             .filter(order => statusFilter === 'all' || order.status === statusFilter)
             .filter(order => {
                 const term = searchTerm.toLowerCase();
-                return order.details.orderId.toLowerCase().includes(term) || order.details.customer.name.toLowerCase().includes(term);
+                return order.order_id_str.toLowerCase().includes(term) || order.customer_name.toLowerCase().includes(term);
             });
     }, [orders, searchTerm, statusFilter, sortConfig]);
 
@@ -110,26 +128,26 @@ const OrderManagementPage: React.FC<{ showToast: (message: string, type: 'succes
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mã Đơn</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Khách hàng</th>
-                                    <SortableHeader sortKey="createdAt">Ngày Đặt</SortableHeader>
-                                    <SortableHeader sortKey="desiredDeliveryDate">Ngày Giao</SortableHeader>
-                                    <SortableHeader sortKey="total">Tổng tiền</SortableHeader>
+                                    <SortableHeader sortKey="created_at">Ngày Đặt</SortableHeader>
+                                    <SortableHeader sortKey="desired_delivery_date">Ngày Giao</SortableHeader>
+                                    <SortableHeader sortKey="total_price">Tổng tiền</SortableHeader>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trạng thái</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hành động</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {sortedAndFilteredOrders.map(order => (
-                                    <tr key={order.details.orderId} className={isUrgent(order.details.desiredDeliveryDate) ? 'bg-red-50' : ''}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">{order.details.orderId}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{order.details.customer.name}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{new Date(order.details.createdAt).toLocaleDateString('vi-VN')}</td>
+                                    <tr key={order.id} className={isUrgent(order.desired_delivery_date) ? 'bg-red-50' : ''}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">{order.order_id_str}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{order.customer_name}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{new Date(order.created_at).toLocaleDateString('vi-VN')}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">
-                                            {isUrgent(order.details.desiredDeliveryDate) && <span title="Gấp!">🔥 </span>}
-                                            {order.details.desiredDeliveryDate ? new Date(order.details.desiredDeliveryDate).toLocaleDateString('vi-VN') : 'N/A'}
+                                            {isUrgent(order.desired_delivery_date) && <span title="Gấp!">🔥 </span>}
+                                            {order.desired_delivery_date ? new Date(order.desired_delivery_date).toLocaleDateString('vi-VN') : 'N/A'}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{formatCurrency(order.details.pricing.total)}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{formatCurrency(order.total_price)}</td>
                                         <td className="px-6 py-4"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColors[order.status]}`}>{order.status}</span></td>
-                                        <td className="px-6 py-4"><select value={order.status} onChange={e => handleStatusChange(order.details.orderId, e.target.value as OrderStatus)} className="p-1 border rounded bg-white text-xs"><option hidden>Đổi</option>{ALL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
+                                        <td className="px-6 py-4"><select value={order.status} onChange={e => handleStatusChange(order.order_id_str, e.target.value as OrderStatus)} className="p-1 border rounded bg-white text-xs"><option hidden>Đổi</option>{ALL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></td>
                                     </tr>
                                 ))}
                                 {sortedAndFilteredOrders.length === 0 && (

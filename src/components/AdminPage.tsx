@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import type { Order, OrderStatus } from '../types';
+import type { StoredOrder, OrderStatus } from '../types';
 import { supabase } from '../supabase';
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -14,17 +14,17 @@ const statusColors: Record<OrderStatus, string> = {
 };
 const ALL_STATUSES: OrderStatus[] = ['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng', 'Đã hủy'];
 
-type SortKey = 'created_at' | 'desired_delivery_date' | 'total_price';
+type SortKey = 'createdAt' | 'desiredDeliveryDate' | 'total';
 type SortDirection = 'asc' | 'desc';
 
 const AdminPage: React.FC<{ showToast: (message: string, type: 'success' | 'error') => void; }> = ({ showToast }) => {
-    const [orders, setOrders] = useState<Order[]>([]);
+    const [orders, setOrders] = useState<StoredOrder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
-    const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'created_at', direction: 'desc' });
+    const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'createdAt', direction: 'desc' });
 
     const fetchOrders = useCallback(async () => {
         setIsLoading(true);
@@ -36,7 +36,11 @@ const AdminPage: React.FC<{ showToast: (message: string, type: 'success' | 'erro
 
             if (error) throw error;
             
-            setOrders(data as Order[]);
+            const formattedOrders: StoredOrder[] = data.map(o => ({
+                status: o.status,
+                details: o.details,
+            }));
+            setOrders(formattedOrders);
             setError(null);
         } catch (err: any) {
             setError('Không thể tải danh sách đơn hàng. Vui lòng thử lại.');
@@ -50,18 +54,18 @@ const AdminPage: React.FC<{ showToast: (message: string, type: 'success' | 'erro
         fetchOrders();
     }, [fetchOrders]);
     
-    const handleStatusChange = async (orderIdStr: string, newStatus: OrderStatus) => {
+    const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
         try {
             const { error } = await supabase
                 .from('orders')
                 .update({ status: newStatus })
-                .eq('order_id_str', orderIdStr);
+                .eq('order_id_str', orderId);
 
             if (error) throw error;
             
             showToast('Cập nhật trạng thái thành công!', 'success');
             setOrders(prevOrders => prevOrders.map(order => 
-                order.order_id_str === orderIdStr ? { ...order, status: newStatus } : order
+                order.details.orderId === orderId ? { ...order, status: newStatus } : order
             ));
         } catch (err) {
             showToast('Lỗi khi cập nhật trạng thái.', 'error');
@@ -81,19 +85,18 @@ const AdminPage: React.FC<{ showToast: (message: string, type: 'success' | 'erro
         let sortableOrders = [...orders];
 
         sortableOrders.sort((a, b) => {
-            const aValue = a[sortConfig.key] || 0;
-            const bValue = b[sortConfig.key] || 0;
-            
-            if (sortConfig.key === 'total_price') {
-                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-                return 0;
+            let aValue, bValue;
+
+            if (sortConfig.key === 'total') {
+                aValue = a.details.pricing.total;
+                bValue = b.details.pricing.total;
+            } else {
+                aValue = new Date(a.details[sortConfig.key] || 0).getTime();
+                bValue = new Date(b.details[sortConfig.key] || 0).getTime();
             }
-            
-            const aDate = new Date(aValue as string).getTime();
-            const bDate = new Date(bValue as string).getTime();
-            if (aDate < bDate) return sortConfig.direction === 'asc' ? -1 : 1;
-            if (aDate > bDate) return sortConfig.direction === 'asc' ? 1 : -1;
+
+            if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
             return 0;
         });
 
@@ -102,8 +105,8 @@ const AdminPage: React.FC<{ showToast: (message: string, type: 'success' | 'erro
             .filter(order => {
                 const term = searchTerm.toLowerCase();
                 return (
-                    order.order_id_str.toLowerCase().includes(term) ||
-                    order.customer_name.toLowerCase().includes(term)
+                    order.details.orderId.toLowerCase().includes(term) ||
+                    order.details.customer.name.toLowerCase().includes(term)
                 );
             });
     }, [orders, searchTerm, statusFilter, sortConfig]);
@@ -115,14 +118,19 @@ const AdminPage: React.FC<{ showToast: (message: string, type: 'success' | 'erro
     }
 
     const SortableHeader: React.FC<{ sortKey: SortKey, children: React.ReactNode }> = ({ sortKey, children }) => (
-        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onClick={() => requestSort(sortKey)}>
-            {children} {sortConfig.key === sortKey && (sortConfig.direction === 'asc' ? ' ▲' : ' ▼')}
+        <th 
+            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+            onClick={() => requestSort(sortKey)}
+        >
+            {children}
+            {sortConfig.key === sortKey && (sortConfig.direction === 'asc' ? ' ▲' : ' ▼')}
         </th>
     );
 
     return (
         <div className="p-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-6">Quản lý Đơn hàng</h1>
+
             <div className="bg-white p-4 rounded-lg shadow-sm mb-6 flex flex-col sm:flex-row gap-4">
                 <input type="text" placeholder="Tìm theo Mã đơn hoặc Tên khách..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="flex-grow p-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-luvin-pink"/>
                 <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as OrderStatus | 'all')} className="p-2 border border-gray-300 rounded-md bg-white focus:ring-1 focus:ring-luvin-pink">
@@ -139,29 +147,29 @@ const AdminPage: React.FC<{ showToast: (message: string, type: 'success' | 'erro
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mã Đơn</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Khách hàng</th>
-                                    <SortableHeader sortKey="created_at">Ngày Đặt</SortableHeader>
-                                    <SortableHeader sortKey="desired_delivery_date">Ngày Giao</SortableHeader>
-                                    <SortableHeader sortKey="total_price">Tổng tiền</SortableHeader>
+                                    <SortableHeader sortKey="createdAt">Ngày Đặt</SortableHeader>
+                                    <SortableHeader sortKey="desiredDeliveryDate">Ngày Giao</SortableHeader>
+                                    <SortableHeader sortKey="total">Tổng tiền</SortableHeader>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trạng thái</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hành động</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
                                 {sortedAndFilteredOrders.map(order => (
-                                    <tr key={order.id} className={isUrgent(order.desired_delivery_date) ? 'bg-red-50' : ''}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-800">{order.order_id_str}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{order.customer_name}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(order.created_at).toLocaleDateString('vi-VN')}</td>
+                                    <tr key={order.details.orderId} className={isUrgent(order.details.desiredDeliveryDate) ? 'bg-red-50' : ''}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-800">{order.details.orderId}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{order.details.customer.name}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(order.details.createdAt!).toLocaleDateString('vi-VN')}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-semibold">
-                                            {isUrgent(order.desired_delivery_date) && <span title="Gấp!" className="mr-1">🔥</span>}
-                                            {order.desired_delivery_date ? new Date(order.desired_delivery_date).toLocaleDateString('vi-VN') : 'N/A'}
+                                            {isUrgent(order.details.desiredDeliveryDate) && <span title="Gấp!" className="mr-1">🔥</span>}
+                                            {order.details.desiredDeliveryDate ? new Date(order.details.desiredDeliveryDate).toLocaleDateString('vi-VN') : 'N/A'}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-800">{formatCurrency(order.total_price)}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-800">{formatCurrency(order.details.pricing.total)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusColors[order.status]}`}>{order.status}</span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                            <select value={order.status} onChange={e => handleStatusChange(order.order_id_str, e.target.value as OrderStatus)} className="p-1 border border-gray-300 rounded-md bg-white text-xs focus:ring-1 focus:ring-luvin-pink">
+                                            <select value={order.status} onChange={e => handleStatusChange(order.details.orderId, e.target.value as OrderStatus)} className="p-1 border border-gray-300 rounded-md bg-white text-xs focus:ring-1 focus:ring-luvin-pink">
                                                 {ALL_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                                             </select>
                                         </td>

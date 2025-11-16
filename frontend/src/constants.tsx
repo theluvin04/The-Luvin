@@ -1,5 +1,7 @@
-import type { FrameConfig } from './types';
-import { IMAGE_ASSETS } from './assets';
+import type { FrameConfig, LegoPart } from './types';
+
+// NOTE: All product and background data is now fetched from the Supabase database.
+// This file only contains initial/template configurations.
 
 export const INITIAL_FRAME_CONFIG: FrameConfig = {
   frameId: 'sm',
@@ -9,47 +11,75 @@ export const INITIAL_FRAME_CONFIG: FrameConfig = {
   draggableItems: [],
 };
 
-export const PRESET_BACKGROUNDS_SQUARE: { name: string; url: string; category: string; }[] = [
-    { name: 'Kỷ niệm 1', url: IMAGE_ASSETS.presetBackgrounds.square.kyniem1, category: 'Kỷ niệm' },
-    { name: 'Kỷ niệm 3', url: IMAGE_ASSETS.presetBackgrounds.square.kyniem3, category: 'Kỷ niệm' },
-    { name: 'Kỷ niệm 4', url: IMAGE_ASSETS.presetBackgrounds.square.kyniem4, category: 'Kỷ niệm' },
-    { name: 'Sinh nhật 1', url: IMAGE_ASSETS.presetBackgrounds.square.sinh_nhat1, category: 'Sinh nhật' },
-    { name: 'Sinh nhật 4', url: IMAGE_ASSETS.presetBackgrounds.square.sinh_nhat4, category: 'Sinh nhật' },
-    { name: 'Sinh nhật 5', url: IMAGE_ASSETS.presetBackgrounds.square.sinh_nhat5, category: 'Sinh nhật' },
-    { name: 'Tốt nghiệp 2', url: IMAGE_ASSETS.presetBackgrounds.square.tot_nghiep2, category: 'Tốt nghiệp' },
-    { name: 'Valentine', url: IMAGE_ASSETS.presetBackgrounds.square.valentine, category: 'Valentine' },
-    { name: 'Đám cưới', url: IMAGE_ASSETS.presetBackgrounds.square.dam_cuoi, category: 'Đám cưới' },
-    { name: 'Spotify', url: IMAGE_ASSETS.presetBackgrounds.square.spotify, category: 'Spotify' },
-];
+const initialTextConfig = {
+    id: 1,
+    content: 'Our Special Day',
+    font: 'Anniversary',
+    size: 50,
+    color: '#333333',
+    x: 50,
+    y: 20,
+    rotation: -5,
+    scale: 1.2,
+    background: true,
+    textAlign: 'center' as const,
+};
 
-export const PRESET_BACKGROUNDS_RECTANGLE: { name: string; url: string; category: string; }[] = [
-    { name: 'FootBall 1', url: IMAGE_ASSETS.presetBackgrounds.rectangle.football1, category: 'Kỷ niệm' },
-    { name: 'FootBall 2', url: IMAGE_ASSETS.presetBackgrounds.rectangle.football2, category: 'Sinh nhật' },
-    { name: 'FootBall 3', url: IMAGE_ASSETS.presetBackgrounds.rectangle.football3, category: 'Sinh nhật' },
-    { name: 'FootBall 4', url: IMAGE_ASSETS.presetBackgrounds.rectangle.football4, category: 'Tốt nghiệp' },
-    { name: 'Tốt nghiệp 3', url: IMAGE_ASSETS.presetBackgrounds.rectangle.tot_nghiep3, category: 'Tốt nghiệp' },
-    { name: 'Album 1', url: IMAGE_ASSETS.presetBackgrounds.rectangle.album1, category: 'Album' },
-    { name: 'Album 2', url: IMAGE_ASSETS.presetBackgrounds.rectangle.album2, category: 'Album' },
-];
+// NOTE: LEGO part IDs here are placeholders. The actual parts will be looked up from the database.
+const placeholderLegoParts = {
+    shirt: [{id: 'shirt2'}, {id: 'shirt3'}, {id: 'shirt4'}, {id: 'shirt5'}],
+    pants: [{id: 'pants2'}, {id: 'pants3'}, {id: 'pants4'}, {id: 'pants5'}],
+    face: [{id: 'face1'}, {id: 'face2'}, {id: 'face3'}, {id: 'face4'}, {id: 'face5'}],
+    hair: [{id: 'hair1'}, {id: 'hair2'}, {id: 'hair3'}, {id: 'hair4'}, {id: 'hair5'}],
+    hat: [{id: 'hat1'}]
+};
 
+// NOTE: Image URLs in these templates are placeholders. 
+// You should update them to point to your actual image URLs in Supabase Storage.
+export const COLLECTION_TEMPLATES: { name: string; imageUrl: string; config: FrameConfig }[] = [
+    {
+        name: 'Wedding Day',
+        imageUrl: '/placeholder-collection-wedding.jpg',
+        config: {
+            frameId: 'lg',
+            background: { type: 'image', value: '/placeholder-bg-valentine.jpg' },
+            texts: [initialTextConfig],
+            characters: [
+                { id: 1, shirt: placeholderLegoParts.shirt[0] as LegoPart, pants: placeholderLegoParts.pants[0] as LegoPart, face: placeholderLegoParts.face[1] as LegoPart, hair: placeholderLegoParts.hair[1] as LegoPart, x: 40, y: 75, rotation: 0, scale: 1 },
+                { id: 2, shirt: placeholderLegoParts.shirt[1] as LegoPart, pants: placeholderLegoParts.pants[1] as LegoPart, face: placeholderLegoParts.face[2] as LegoPart, hair: placeholderLegoParts.hair[0] as LegoPart, x: 60, y: 75, rotation: 0, scale: 1 },
+            ],
+            draggableItems: [],
+        }
+    },
+    {
+        name: 'Graduation',
+        imageUrl: '/placeholder-collection-graduation.jpg',
+        config: {
+            frameId: 'md',
+            background: { type: 'color', value: '#e0f2fe' },
+            texts: [{...initialTextConfig, id: 2, content: 'Class of 2024', y: 10, rotation: 0, scale: 1}],
+            characters: [
+                { id: 1, shirt: placeholderLegoParts.shirt[2] as LegoPart, pants: placeholderLegoParts.pants[2] as LegoPart, face: placeholderLegoParts.face[3] as LegoPart, hat: placeholderLegoParts.hat[0] as LegoPart, x: 50, y: 75, rotation: 0, scale: 1 },
+            ],
+            draggableItems: [{ id: Date.now(), partId: 'accessory1', type: 'accessory', x: 70, y: 70, rotation: 15, scale: 1 }],
+        }
+    },
+];
 
 export const FEEDBACK_ITEMS = [
-    { name: 'Minh & Anh', text: 'Món quà kỷ niệm cưới tuyệt vời, chồng mình rất thích!', imageUrl: IMAGE_ASSETS.feedback.minhAnh },
-    { name: 'Gia đình bé Bắp', text: 'Bé nhà mình rất hào hứng khi thấy cả nhà trong khung hình LEGO.', imageUrl: IMAGE_ASSETS.feedback.giaDinhBap },
-    { name: 'Hoàng Long', text: 'Shop tư vấn nhiệt tình, giao hàng nhanh. Sẽ ủng hộ lần tới!', imageUrl: IMAGE_ASSETS.feedback.hoangLong },
-    { name: 'Thùy Chi', text: 'Chất lượng sản phẩm rất tốt, chi tiết sắc nét.', imageUrl: IMAGE_ASSETS.feedback.thuyChi },
+    { name: 'Minh & Anh', text: 'Món quà kỷ niệm cưới tuyệt vời, chồng mình rất thích!', imageUrl: '/placeholder-feedback-1.jpg' },
+    { name: 'Gia đình bé Bắp', text: 'Bé nhà mình rất hào hứng khi thấy cả nhà trong khung hình LEGO.', imageUrl: '/placeholder-feedback-2.jpg' },
+    { name: 'Hoàng Long', text: 'Shop tư vấn nhiệt tình, giao hàng nhanh. Sẽ ủng hộ lần tới!', imageUrl: '/placeholder-feedback-3.jpg' },
 ];
 
 export const PRODUCT_HIGHLIGHTS = [
-    {id: 1, name: 'Khung Kỷ niệm Ngày cưới', collection: 'Bộ sưu tập Tình yêu', imageUrl: IMAGE_ASSETS.productHighlights.wedding },
-    {id: 2, name: 'Khung Tốt nghiệp', collection: 'Bộ sưu tập Dấu ấn', imageUrl: IMAGE_ASSETS.productHighlights.graduation },
-    {id: 3, name: 'Khung Gia đình', collection: 'Bộ sưu tập Gia đình', imageUrl: IMAGE_ASSETS.productHighlights.family },
-    {id: 4, name: 'Khung Sinh nhật Vui vẻ', collection: 'Bộ sưu tập Mừng tuổi mới', imageUrl: IMAGE_ASSETS.productHighlights.birthday },
+    {id: 1, name: 'Khung Kỷ niệm Ngày cưới', collection: 'Bộ sưu tập Tình yêu', imageUrl: '/placeholder-highlight-1.jpg' },
+    {id: 2, name: 'Khung Tốt nghiệp', collection: 'Bộ sưu tập Dấu ấn', imageUrl: '/placeholder-highlight-2.jpg' },
+    {id: 3, name: 'Khung Gia đình', collection: 'Bộ sưu tập Gia đình', imageUrl: '/placeholder-highlight-3.jpg' },
 ]
 
 export const GENERAL_ASSETS = {
-  hero: IMAGE_ASSETS.general.hero,
-  inspire: IMAGE_ASSETS.general.inspire,
-  giftbox: IMAGE_ASSETS.general.giftbox,
-  vietqr: IMAGE_ASSETS.general.vietqr,
+  hero: '/placeholder-general-hero.jpg',
+  inspire: '/placeholder-general-inspire.jpg',
+  giftbox: '/placeholder-general-giftbox.jpg',
 }

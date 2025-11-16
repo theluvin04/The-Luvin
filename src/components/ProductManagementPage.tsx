@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { AllProducts, LegoPart, FrameOption, Product } from '../types';
 import { supabase } from '../supabase';
 
@@ -57,10 +57,19 @@ const ProductManagementPage: React.FC<{
             <h1 className="text-3xl font-bold text-gray-900 mb-6">Quản lý Sản phẩm</h1>
             
             <div className="bg-white p-4 rounded-lg shadow mb-6 flex gap-4">
-                <input type="text" placeholder="Tìm sản phẩm..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="flex-grow p-2 border rounded-md" />
+                <input
+                    type="text"
+                    placeholder="Tìm sản phẩm..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="flex-grow p-2 border rounded-md"
+                />
                 <select value={filter} onChange={e => setFilter(e.target.value)} className="p-2 border rounded-md bg-white">
                     {categories.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
                 </select>
+                {/* <button onClick={() => { setEditingProduct(null); setIsModalOpen(true); }} className="bg-green-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-green-600">
+                    + Thêm mới
+                </button> */}
             </div>
 
             <div className="bg-white rounded-lg shadow overflow-x-auto">
@@ -78,10 +87,7 @@ const ProductManagementPage: React.FC<{
                     <tbody className="bg-white divide-y divide-gray-200">
                        {filteredProducts.map(product => (
                            <tr key={`${product.type}-${product.id}`}>
-                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center gap-3">
-                                   {product.imageUrl && <img src={product.imageUrl} alt={product.name} className="w-10 h-10 object-contain rounded-md bg-gray-100 p-1" />}
-                                   {product.name}
-                               </td>
+                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{product.name}</td>
                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.type}</td>
                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.price}</td>
                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.stock}</td>
@@ -104,51 +110,25 @@ const ProductManagementPage: React.FC<{
                     product={editingProduct} 
                     onClose={() => setIsModalOpen(false)}
                     onSave={handleSave}
-                    showToast={showToast}
                 />
             )}
         </div>
     );
 };
 
-const ProductEditModal: React.FC<{ product: Product | null, onClose: () => void, onSave: (p: Product) => void, showToast: (msg: string, type: 'success' | 'error') => void; }> = ({ product, onClose, onSave, showToast }) => {
+const ProductEditModal: React.FC<{ product: Product | null, onClose: () => void, onSave: (p: Product) => void }> = ({ product, onClose, onSave }) => {
+    // FIX: Added `imageUrl: ''` to the default object to ensure it is a valid `LegoPart` and thus a valid `Product`.
     const [formData, setFormData] = useState<Product>(product || { id: '', name: '', price: 0, stock: 100, isVisible: true, type: 'hair', imageUrl: '' });
-    const [isUploading, setIsUploading] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
         const isCheckbox = type === 'checkbox';
         const isNumber = type === 'number';
         
-        setFormData(prev => ({ ...prev, [name]: isCheckbox ? (e.target as HTMLInputElement).checked : isNumber ? Number(value) : value, }));
-    };
-    
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        setIsUploading(true);
-        try {
-            const fileExt = file.name.split('.').pop();
-            const fileName = `${formData.type}-${formData.id || Date.now()}.${fileExt}`;
-            const filePath = `products/${formData.type}/${fileName}`;
-            
-            const { error: uploadError } = await supabase.storage.from('assets').upload(filePath, file, { upsert: true });
-            if (uploadError) throw uploadError;
-
-            const { data } = supabase.storage.from('assets').getPublicUrl(filePath);
-            if (!data.publicUrl) throw new Error("Could not get public URL");
-
-            setFormData(prev => ({ ...prev, imageUrl: data.publicUrl }));
-            showToast("Tải ảnh lên thành công!", "success");
-
-        } catch (error) {
-            console.error(error);
-            showToast("Lỗi khi tải ảnh lên.", "error");
-        } finally {
-            setIsUploading(false);
-        }
+        setFormData(prev => ({
+            ...prev,
+            [name]: isCheckbox ? (e.target as HTMLInputElement).checked : isNumber ? Number(value) : value,
+        }));
     };
 
     return (
@@ -156,7 +136,7 @@ const ProductEditModal: React.FC<{ product: Product | null, onClose: () => void,
             <div className="bg-white rounded-lg p-6 max-w-lg w-full">
                 <h2 className="text-xl font-bold mb-4">{product ? `Sửa: ${product.name}` : 'Thêm sản phẩm mới'}</h2>
                 <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-4">
-                     <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium">ID (Không thể sửa)</label>
                             <input value={formData.id} readOnly className="w-full p-2 border rounded-md bg-gray-100" />
@@ -181,14 +161,8 @@ const ProductEditModal: React.FC<{ product: Product | null, onClose: () => void,
                         </div>
                     </div>
                      <div>
-                        <label className="block text-sm font-medium">Ảnh sản phẩm</label>
-                        <div className="flex items-center gap-3 mt-1">
-                           <input name="imageUrl" value={(formData as any).imageUrl || ''} onChange={handleChange} className="w-full p-2 border rounded-md bg-gray-50" placeholder="URL hình ảnh..."/>
-                           <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="flex-shrink-0 bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50">
-                               {isUploading ? 'Đang tải...' : 'Tải lên'}
-                           </button>
-                        </div>
-                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/png, image/jpeg, image/webp" />
+                        <label className="block text-sm font-medium">Image URL</label>
+                        <input name="imageUrl" value={(formData as any).imageUrl || ''} onChange={handleChange} className="w-full p-2 border rounded-md" />
                     </div>
                     <div>
                         <label className="flex items-center gap-2">
