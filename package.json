@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "Full-stack application for The Luvin.",
-  "scripts": {},
+  "scripts": {
+    "start:backend": "cd backend && npm install && npm start",
+    "start": "npm run start:backend"
+  },
   "author": "",
   "license": "ISC"
 }

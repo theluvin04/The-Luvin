@@ -1,0 +1,96 @@
+{
+  "users": {
+    "admin": {
+      "username": "admin",
+      "password": "password",
+      "role": "admin"
+    },
+    "staff": {
+      "username": "staff",
+      "password": "password",
+      "role": "staff"
+    }
+  },
+  "products": {
+    "frames": [
+      { "id": "sm", "name": "15x15cm", "frameWidthCm": 15, "frameHeightCm": 15, "backgroundWidthCm": 12, "backgroundHeightCm": 12, "price": 210000, "imageUrl": "/images/frames/frame-sm.jpg", "description": "Nhỏ gọn, tinh tế", "stock": 100, "isVisible": true },
+      { "id": "md", "name": "14.8x21cm", "frameWidthCm": 14.8, "frameHeightCm": 21, "backgroundWidthCm": 12, "backgroundHeightCm": 17, "price": 220000, "imageUrl": "/images/frames/frame-md.jpg", "description": "Thanh lịch, đứng dáng", "stock": 100, "isVisible": true },
+      { "id": "lg", "name": "23x23cm", "frameWidthCm": 23, "frameHeightCm": 23, "backgroundWidthCm": 20, "backgroundHeightCm": 20, "price": 230000, "imageUrl": "/images/frames/frame-lg.jpg", "description": "Sang trọng, ấn tượng", "stock": 100, "isVisible": true }
+    ],
+    "lego_parts": {
+      "hair": [
+        { "id": "hair1", "name": "Tóc 1", "price": 25000, "imageUrl": "/images/lego/hair/hair1.png", "type": "hair", "stock": 100, "isVisible": true },
+        { "id": "hair2", "name": "Tóc 2", "price": 25000, "imageUrl": "/images/lego/hair/hair2.png", "type": "hair", "stock": 100, "isVisible": true },
+        { "id": "hair3", "name": "Tóc 3", "price": 25000, "imageUrl": "/images/lego/hair/hair3.png", "type": "hair", "stock": 100, "isVisible": true },
+        { "id": "hair4", "name": "Tóc 4", "price": 25000, "imageUrl": "/images/lego/hair/hair4.png", "type": "hair", "stock": 100, "isVisible": true },
+        { "id": "hair5", "name": "Tóc 5", "price": 25000, "imageUrl": "/images/lego/hair/hair5.png", "type": "hair", "stock": 100, "isVisible": true }
+      ],
+      "face": [
+        { "id": "face1", "name": "Mặt 1", "price": 0, "imageUrl": "/images/lego/face/face1.png", "type": "face", "stock": 100, "isVisible": true },
+        { "id": "face2", "name": "Mặt 2", "price": 0, "imageUrl": "/images/lego/face/face2.png", "type": "face", "stock": 100, "isVisible": true },
+        { "id": "face3", "name": "Mặt 3", "price": 0, "imageUrl": "/images/lego/face/face3.png", "type": "face", "stock": 100, "isVisible": true },
+        { "id": "face4", "name": "Mặt 4", "price": 0, "imageUrl": "/images/lego/face/face4.png", "type": "face", "stock": 100, "isVisible": true },
+        { "id": "face5", "name": "Mặt 5", "price": 0, "imageUrl": "/images/lego/face/face5.png", "type": "face", "stock": 100, "isVisible": true }
+      ],
+      "shirt": [
+        { "id": "shirt1_white", "name": "Áo trắng", "price": 0, "imageUrl": "/images/lego/shirt/shirt1_white.png", "type": "shirt", "stock": 100, "isVisible": true },
+        { "id": "shirt1_red", "name": "Áo đỏ", "price": 10000, "imageUrl": "/images/lego/shirt/shirt1_red.png", "type": "shirt", "stock": 100, "isVisible": true },
+        { "id": "shirt1_blue", "name": "Áo xanh", "price": 10000, "imageUrl": "/images/lego/shirt/shirt1_blue.png", "type": "shirt", "stock": 100, "isVisible": true },
+        { "id": "shirt2", "name": "Áo 2", "price": 15000, "imageUrl": "/images/lego/shirt/shirt2.png", "type": "shirt", "stock": 100, "isVisible": true },
+        { "id": "shirt3", "name": "Áo 3", "price": 15000, "imageUrl": "/images/lego/shirt/shirt3.png", "type": "shirt", "stock": 100, "isVisible": true },
+        { "id": "shirt4", "name": "Áo 4", "price": 15000, "imageUrl": "/images/lego/shirt/shirt4.png", "type": "shirt", "stock": 100, "isVisible": true },
+        { "id": "shirt5", "name": "Áo 5", "price": 15000, "imageUrl": "/images/lego/shirt/shirt5.png", "type": "shirt", "stock": 100, "isVisible": true }
+      ],
+      "pants": [
+        { "id": "pants1_black", "name": "Quần đen", "price": 0, "imageUrl": "/images/lego/pants/pants1_black.png", "type": "pants", "stock": 100, "isVisible": true },
+        { "id": "pants1_beige", "name": "Quần be", "price": 10000, "imageUrl": "/images/lego/pants/pants1_beige.png", "type": "pants", "stock": 100, "isVisible": true },
+        { "id": "pants1_gray", "name": "Quần xám", "price": 10000, "imageUrl": "/images/lego/pants/pants1_gray.png", "type": "pants", "stock": 100, "isVisible": true },
+        { "id": "pants2", "name": "Quần 2", "price": 15000, "imageUrl": "/images/lego/pants/pants2.png", "type": "pants", "stock": 100, "isVisible": true },
+        { "id": "pants3", "name": "Quần 3", "price": 15000, "imageUrl": "/images/lego/pants/pants3.png", "type": "pants", "stock": 100, "isVisible": true },
+        { "id": "pants4", "name": "Quần 4", "price": 15000, "imageUrl": "/images/lego/pants/pants4.png", "type": "pants", "stock": 100, "isVisible": true },
+        { "id": "pants5", "name": "Quần 5", "price": 15000, "imageUrl": "/images/lego/pants/pants5.png", "type": "pants", "stock": 100, "isVisible": true }
+      ],
+      "hat": [
+        { "id": "hat1", "name": "Mũ 1", "price": 30000, "imageUrl": "/images/lego/hat/hat1.png", "type": "hat", "stock": 100, "isVisible": true },
+        { "id": "hat2", "name": "Mũ 2", "price": 30000, "imageUrl": "/images/lego/hat/hat2.png", "type": "hat", "stock": 100, "isVisible": true },
+        { "id": "hat3", "name": "Mũ 3", "price": 30000, "imageUrl": "/images/lego/hat/hat3.png", "type": "hat", "stock": 100, "isVisible": true }
+      ],
+      "accessory": [
+        { "id": "accessory1", "name": "Phụ kiện 1", "price": 5000, "imageUrl": "/images/lego/accessory/accessory1.png", "type": "accessory", "stock": 100, "isVisible": true },
+        { "id": "accessory2", "name": "Phụ kiện 2", "price": 5000, "imageUrl": "/images/lego/accessory/accessory2.png", "type": "accessory", "stock": 100, "isVisible": true },
+        { "id": "accessory3", "name": "Phụ kiện 3", "price": 5000, "imageUrl": "/images/lego/accessory/accessory3.png", "type": "accessory", "stock": 100, "isVisible": true },
+        { "id": "accessory4", "name": "Phụ kiện 4", "price": 40000, "imageUrl": "/images/lego/accessory/accessory4.png", "type": "accessory", "stock": 100, "isVisible": true },
+        { "id": "accessory5", "name": "Phụ kiện 5", "price": 40000, "imageUrl": "/images/lego/accessory/accessory5.png", "type": "accessory", "stock": 100, "isVisible": true }
+      ],
+      "pet": [
+        { "id": "pet1", "name": "Thú cưng 1", "price": 15000, "imageUrl": "/images/lego/pet/pet1.png", "type": "pet", "stock": 100, "isVisible": true },
+        { "id": "pet2", "name": "Thú cưng 2", "price": 15000, "imageUrl": "/images/lego/pet/pet2.png", "type": "pet", "stock": 100, "isVisible": true },
+        { "id": "pet3", "name": "Thú cưng 3", "price": 15000, "imageUrl": "/images/lego/pet/pet3.png", "type": "pet", "stock": 100, "isVisible": true }
+      ]
+    }
+  },
+  "backgrounds": {
+    "square": [
+      { "id": "sq_kyniem1", "name": "Kỷ niệm 1", "url": "https://lh3.googleusercontent.com/pw/AP1GczM0nRHEo2eAVli4BgIMG_JIeNPoeyxfEPrX1oiK9jA7c4w-bK0kOsD8D9UycqckgTqhq55378s_aHLW6-ZGSrI5RnnzXKX_ojRsW2rNaW1P6ufoVX-HsAg2A51HVC5H6BAq8sJg6UxsEWFnx_d8h_0=w1031-h1034-s-no-gm?authuser=0", "category": "Kỷ niệm", "isVisible": true },
+      { "id": "sq_kyniem3", "name": "Kỷ niệm 3", "url": "https://lh3.googleusercontent.com/pw/AP1GczNQIZZ5Q51k0rVMcXZchzlDCyjRzuWIrJF7h8EGiVrUNc6hXv86ltXjaN49aJz1u0Jz0Y5rmZSuCaJ_T538jr7sCIfX3Yiphd_UpM_JQLRhbZh2jXAOhhL1HcjEs3bZrI2MCVcxt2jivjC5OzdqGTI=w1138-h1134-s-no-gm?authuser=0", "category": "Kỷ niệm", "isVisible": true },
+      { "id": "sq_kyniem4", "name": "Kỷ niệm 4", "url": "http://lh3.googleusercontent.com/pw/AP1GczOyTho_e-2YwjZAAxanbpIl_cy91I_gynW4-6KHqTVHHOw8OCx40V9IOH9h8CY2T7yQlhYtwJlg8VZbieJgLGmYpjUxRXJ5QU0MnRRGHVwIBELZJJjL5rz0IjAjBXdNaB42a8_drRxfMlC3I1F1qIg=w1128-h1131-s-no-gm?authuser=0", "category": "Kỷ niệm", "isVisible": true },
+      { "id": "sq_sinhnhat1", "name": "Sinh nhật 1", "url": "https://lh3.googleusercontent.com/pw/AP1GczM-SMSA6DnWoorLbnq6DyDPQ3QN1EUDfZhP47DphHOVt9mEnwohm1awE0t8L4Y5DLW-7M3rvpiG35-6iz8T1kUrvhUUUkXiiv7QTxMXJmD2UqlNXLbUGv5OOGfR8X04jjazCko4cNov9lbM-xAzWek=w1148-h1132-s-no-gm?authuser=0", "category": "Sinh nhật", "isVisible": true },
+      { "id": "sq_sinhnhat4", "name": "Sinh nhật 4", "url": "https://lh3.googleusercontent.com/pw/AP1GczOAwzsnaFQ8tGobLpeFseXAhtRTaHFiaZgNxQ4GPiS5I1dkvb2dwenM8XJ3QPrbL-ltVQQ6SXuKW1ul3mRmkA30ACqAflpcVA7zM39nlpftxIHAxx94kxXQIi3ASQYsnmoMN9Ia2eLGxTD51VDqOwk=w1128-h1123-s-no-gm?authuser=0", "category": "Sinh nhật", "isVisible": true },
+      { "id": "sq_sinhnhat5", "name": "Sinh nhật 5", "url": "https://lh3.googleusercontent.com/pw/AP1GczNQQTFoQOmoe9mdqJKUcwpKJm5R8CG_p8SDm0ipY5ERyicBBFCK4bUJ_aVGpiC8K0ARbsPhaTZ8vf1cSzMWElbw-Ze8sSXY2EhLIr6nvlu42UC9qvseXalPlrK9iBPKor5jnB5vc2dBmfwnR1uDbXk=w1130-h1134-s-no-gm?authuser=0", "category": "Sinh nhật", "isVisible": true },
+      { "id": "sq_totnghiep2", "name": "Tốt nghiệp 2", "url": "https://lh3.googleusercontent.com/pw/AP1GczMdnvFOdBp9ClYfoe_8m4twzxTz1IA1YbmTpfBkDIpGxIWOUxRHoOrFYOy18UGnWzhXvD2Cy6kEoGdHnMS_y05PIVQcYGw3J4_cgrKJvh3iNusRIXpfn6tQenwLUHa155LLgl3GhzMpLzyNBnJHZp0=w1271-h1276-s-no-gm?authuser=0", "category": "Tốt nghiệp", "isVisible": true },
+      { "id": "sq_valentine", "name": "Valentine", "url": "https://i.imgur.com/g0Ab5kG.jpg", "category": "Valentine", "isVisible": true },
+      { "id": "sq_damcuoi", "name": "Đám cưới", "url": "https://i.imgur.com/w2Y3gbS.jpg", "category": "Đám cưới", "isVisible": true },
+      { "id": "sq_spotify", "name": "Spotify", "url": "https://i.imgur.com/U8I3uY0.png", "category": "Spotify", "isVisible": true }
+    ],
+    "rectangle": [
+      { "id": "rec_football1", "name": "FootBall 1", "url": "https://lh3.googleusercontent.com/pw/AP1GczP0iky6n0xl4zx_yGr1tIcZPQAr8aDG9bT_uo_Ya8hreVOUxtQggqMhotXOealT9yMWllM7nT6NIFT5hqEcPUKUgwzFEYcqbmn6R1hbGjW-0mE9eYtyIyCeRmsCvm6P0gVTJveCYf_u1hTrGCTWu_gU=w515-h733-s-no-gm?authuser=0", "category": "Kỷ niệm", "isVisible": true },
+      { "id": "rec_football2", "name": "FootBall 2", "url": "https://lh3.googleusercontent.com/pw/AP1GczMQ5y2_-1hToGCgRoixEhm-cuf1HwT7M41wk_e4G2b9IcRPvgtNueJXVb8kI7aCmxO63J7l_C8tra_rjNSDQnb0i4TdxEVIyY1hIfHuvy2WT0Y61MCrc427TxEwEBf4MAXCHSto0DYVjUfzIww9yXfo=w512-h739-s-no-gm?authuser=0", "category": "Sinh nhật", "isVisible": true },
+      { "id": "rec_football3", "name": "FootBall 3", "url": "https://lh3.googleusercontent.com/pw/AP1GczO7JgLHHBw6mVgTCLLM4UocVFDzSgPJiPH5beQ2x0G0_aGDHB2-CYdny3pk6FIQVJeyqfpkWnm1XsgolB_o8CLgUI_VJrW4yfFPvEniWkFmEbe_L0X6UFgmjea1Ua23GjJjRwIicv_I51N7z6TsRljU=w512-h736-s-no-gm?authuser=0", "category": "Sinh nhật", "isVisible": true },
+      { "id": "rec_football4", "name": "FootBall 4", "url": "https://lh3.googleusercontent.com/pw/AP1GczPhO-fWNQfBVSOPZdN_weLxO-0pE_F42zJWCzAig3Z7iCYwoTMHz-9VhuZPzy1bVtJslvP-hfpm1fTx567j8rEHM8DBTgeWaCun-rU6x41LLulNOnJIkdqnHqls7vocer-aF79LPgt0TX46WacvIIrS=w513-h739-s-no-gm?authuser=0", "category": "Tốt nghiệp", "isVisible": true },
+      { "id": "rec_totnghiep3", "name": "Tốt nghiệp 3", "url": "https://i.imgur.com/pBf1gV2.jpg", "category": "Tốt nghiệp", "isVisible": true },
+      { "id": "rec_album1", "name": "Album 1", "url": "https://i.imgur.com/qT1qB1k.jpg", "category": "Album", "isVisible": true },
+      { "id": "rec_album2", "name": "Album 2", "url": "https://i.imgur.com/sC03b30.jpg", "category": "Album", "isVisible": true }
+    ]
+  },
+  "orders": {}
+}
