@@ -1,7 +1,7 @@
 // FIX: import useMemo from React
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-// FIX: Update imports to use AllProducts type and remove dependency on constants.
-import type { FrameConfig, LegoPart, TextConfig, AllProducts, FrameOption } from '../types';
+import type { FrameConfig, LegoPart, TextConfig } from '../types';
+import { FRAME_OPTIONS, LEGO_PARTS } from '../constants';
 
 type Transform = {
   x: number;
@@ -20,8 +20,6 @@ interface FramePreviewProps {
   isInteractive?: boolean;
   selectedItemId: string | null;
   setSelectedItemId: (id: string | null) => void;
-  // FIX: Add allProducts prop to receive dynamic product data.
-  allProducts: AllProducts | null;
 }
 
 const LegoCharacter: React.FC<{ character: FrameConfig['characters'][0]; scale: number }> = ({ character, scale }) => {
@@ -348,26 +346,16 @@ const Transformable: React.FC<{
 };
 
 
-const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ config, containerWidth = 400, onItemTransform, onTextUpdate, className, isInteractive = true, selectedItemId, setSelectedItemId, allProducts }, ref) => {
-  // FIX: Use allProducts from props to get frame data.
-  const frameOption = allProducts?.frames.find(f => f.id === config.frameId) || allProducts?.frames[0];
+const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ config, containerWidth = 400, onItemTransform, onTextUpdate, className, isInteractive = true, selectedItemId, setSelectedItemId }, ref) => {
+  const frameOption = FRAME_OPTIONS.find(f => f.id === config.frameId) || FRAME_OPTIONS[0];
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [isCurrentlyEditingText, setIsCurrentlyEditingText] = useState(false);
-
-  // FIX: Handle loading state when product data is not available.
-  if (!allProducts || !frameOption) {
-      return (
-        <div className={`flex items-center justify-center ${className}`} style={{ width: containerWidth, height: containerWidth }}>
-            <div className="text-gray-500">Loading Preview...</div>
-        </div>
-      );
-  }
 
   // --- START OF FIX: Proportional Scaling Logic ---
   // 1. Find the largest dimension (width or height) across all available frames.
   const maxDimensionCm = useMemo(() => 
-    Math.max(...allProducts.frames.map(f => Math.max(f.frameWidthCm, f.frameHeightCm)))
-  , [allProducts.frames]);
+    Math.max(...FRAME_OPTIONS.map(f => Math.max(f.frameWidthCm, f.frameHeightCm)))
+  , []);
 
   // 2. Create a consistent scaling factor (pixels per cm) based on the container width and the max dimension.
   const pxPerCm = containerWidth / maxDimensionCm;
@@ -386,17 +374,13 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
       ? { backgroundColor: config.background.value }
       : { backgroundImage: `url(${config.background.value})`, backgroundSize: 'cover', backgroundPosition: 'center' };
   
-  // FIX: Correctly type and create a lookup map for all LEGO parts from props.
-  const allParts: Record<string, LegoPart> = useMemo(() =>
-    allProducts
-      ? Object.values(allProducts.lego_parts)
-          .flat()
-          .reduce((acc: Record<string, LegoPart>, part) => {
-            acc[part.id] = part;
-            return acc;
-          }, {})
-      : {},
-  [allProducts]);
+  // FIX: Correctly type and create a lookup map for all LEGO parts.
+  const allParts: Record<string, LegoPart> = useMemo(() => 
+    Object.values(LEGO_PARTS).flat().reduce((acc: Record<string, LegoPart>, part: LegoPart) => {
+        acc[part.id] = part;
+        return acc;
+    }, {}), 
+  []);
 
   return (
     // This outer div now correctly scales the entire component proportionally.

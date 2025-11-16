@@ -25,7 +25,6 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, navigateTo, page })
       { label: 'Tổng quan', page: 'admin-dashboard', requiredRole: 'staff' },
       { label: 'Đơn hàng', page: 'admin-orders', requiredRole: 'staff' },
       { label: 'Sản phẩm', page: 'admin-products', requiredRole: 'admin' },
-      { label: 'Nền', page: 'admin-backgrounds', requiredRole: 'admin' },
   ];
   
   const visibleLinks = navLinks.filter(link => 

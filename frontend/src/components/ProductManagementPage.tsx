@@ -1,6 +1,8 @@
-import React, { useState, useMemo, useRef } from 'react';
-import type { AllProducts, LegoPart, FrameOption, Product } from '../types';
-import { supabase } from '../supabase';
+import React, { useState, useMemo } from 'react';
+import type { AllProducts, LegoPart, FrameOption } from '../types';
+import { API_BASE_URL } from '../App';
+
+type Product = (LegoPart | FrameOption) & { category?: string; stock?: number, isVisible?: boolean };
 
 const ProductManagementPage: React.FC<{
     allProducts: AllProducts | null;
@@ -13,19 +15,22 @@ const ProductManagementPage: React.FC<{
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
     const productsList = useMemo(() => {
+        // FIX: Add a null check to prevent errors on initial render.
         if (!allProducts) return [];
-        const frames = allProducts.frames.map(f => ({ ...f, type: 'frame' as const }));
-        const parts = Object.values(allProducts.lego_parts).flat();
+        const frames = allProducts.frames.map(f => ({ ...f, category: 'frames', type: 'frame' as const }));
+        const parts = Object.entries(allProducts.lego_parts).flatMap(([category, items]) =>
+            items.map(p => ({ ...p, category }))
+        );
         return [...frames, ...parts];
     }, [allProducts]);
     
     const filteredProducts = useMemo(() => {
         return productsList
-            .filter(p => filter === 'all' || p.type === filter)
+            .filter(p => filter === 'all' || p.category === filter)
             .filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
     }, [productsList, filter, searchTerm]);
 
-    const categories = ['all', 'frame', ...Object.keys(allProducts?.lego_parts || {})];
+    const categories = ['all', 'frames', ...Object.keys(allProducts?.lego_parts || {})];
 
     const handleEdit = (product: Product) => {
         setEditingProduct(product);
@@ -33,19 +38,12 @@ const ProductManagementPage: React.FC<{
     };
 
     const handleSave = async (productToSave: Product) => {
-        try {
-            const { error } = await supabase.from('products').upsert(productToSave);
-            if (error) throw error;
-            
-            showToast("Lưu sản phẩm thành công", "success");
-            onProductUpdate();
-        } catch (error) {
-            showToast("Lỗi khi lưu sản phẩm.", "error");
-            console.error(error);
-        } finally {
-            setIsModalOpen(false);
-            setEditingProduct(null);
-        }
+        // Here you would call the API to save the product
+        console.log("Saving product (simulation):", productToSave);
+        showToast("Lưu sản phẩm thành công (mô phỏng)", "success");
+        // onProductUpdate(); // This would re-fetch the product list
+        setIsModalOpen(false);
+        setEditingProduct(null);
     };
 
     if (!allProducts) {
@@ -57,10 +55,19 @@ const ProductManagementPage: React.FC<{
             <h1 className="text-3xl font-bold text-gray-900 mb-6">Quản lý Sản phẩm</h1>
             
             <div className="bg-white p-4 rounded-lg shadow mb-6 flex gap-4">
-                <input type="text" placeholder="Tìm sản phẩm..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="flex-grow p-2 border rounded-md" />
+                <input
+                    type="text"
+                    placeholder="Tìm sản phẩm..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="flex-grow p-2 border rounded-md"
+                />
                 <select value={filter} onChange={e => setFilter(e.target.value)} className="p-2 border rounded-md bg-white">
                     {categories.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
                 </select>
+                <button onClick={() => { setEditingProduct(null); setIsModalOpen(true); }} className="bg-green-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-green-600">
+                    + Thêm mới
+                </button>
             </div>
 
             <div className="bg-white rounded-lg shadow overflow-x-auto">
@@ -77,12 +84,9 @@ const ProductManagementPage: React.FC<{
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                        {filteredProducts.map(product => (
-                           <tr key={`${product.type}-${product.id}`}>
-                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center gap-3">
-                                   {product.imageUrl && <img src={product.imageUrl} alt={product.name} className="w-10 h-10 object-contain rounded-md bg-gray-100 p-1" />}
-                                   {product.name}
-                               </td>
-                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.type}</td>
+                           <tr key={`${product.category}-${product.id}`}>
+                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{product.name}</td>
+                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.category}</td>
                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.price}</td>
                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.stock}</td>
                                <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -104,68 +108,31 @@ const ProductManagementPage: React.FC<{
                     product={editingProduct} 
                     onClose={() => setIsModalOpen(false)}
                     onSave={handleSave}
-                    showToast={showToast}
                 />
             )}
         </div>
     );
 };
 
-const ProductEditModal: React.FC<{ product: Product | null, onClose: () => void, onSave: (p: Product) => void, showToast: (msg: string, type: 'success' | 'error') => void; }> = ({ product, onClose, onSave, showToast }) => {
-    const [formData, setFormData] = useState<Product>(product || { id: '', name: '', price: 0, stock: 100, isVisible: true, type: 'hair', imageUrl: '' });
-    const [isUploading, setIsUploading] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+const ProductEditModal: React.FC<{ product: Product | null, onClose: () => void, onSave: (p: Product) => void }> = ({ product, onClose, onSave }) => {
+    const [formData, setFormData] = useState(product || { name: '', price: 0, stock: 0, isVisible: true, id: Date.now().toString(), type: 'hair' });
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
         const isCheckbox = type === 'checkbox';
         const isNumber = type === 'number';
         
-        setFormData(prev => ({ ...prev, [name]: isCheckbox ? (e.target as HTMLInputElement).checked : isNumber ? Number(value) : value, }));
-    };
-    
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        setIsUploading(true);
-        try {
-            const fileExt = file.name.split('.').pop();
-            const fileName = `${formData.type}-${formData.id || Date.now()}.${fileExt}`;
-            const filePath = `products/${formData.type}/${fileName}`;
-            
-            const { error: uploadError } = await supabase.storage.from('assets').upload(filePath, file, { upsert: true });
-            if (uploadError) throw uploadError;
-
-            const { data } = supabase.storage.from('assets').getPublicUrl(filePath);
-            if (!data.publicUrl) throw new Error("Could not get public URL");
-
-            setFormData(prev => ({ ...prev, imageUrl: data.publicUrl }));
-            showToast("Tải ảnh lên thành công!", "success");
-
-        } catch (error) {
-            console.error(error);
-            showToast("Lỗi khi tải ảnh lên.", "error");
-        } finally {
-            setIsUploading(false);
-        }
+        setFormData(prev => ({
+            ...prev,
+            [name]: isCheckbox ? (e.target as HTMLInputElement).checked : isNumber ? Number(value) : value,
+        }));
     };
 
     return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-lg p-6 max-w-lg w-full">
-                <h2 className="text-xl font-bold mb-4">{product ? `Sửa: ${product.name}` : 'Thêm sản phẩm mới'}</h2>
-                <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-4">
-                     <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium">ID (Không thể sửa)</label>
-                            <input value={formData.id} readOnly className="w-full p-2 border rounded-md bg-gray-100" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium">Loại (Không thể sửa)</label>
-                            <input value={formData.type} readOnly className="w-full p-2 border rounded-md bg-gray-100" />
-                        </div>
-                    </div>
+                <h2 className="text-xl font-bold mb-4">{product ? 'Sửa sản phẩm' : 'Thêm sản phẩm mới'}</h2>
+                <div className="space-y-4">
                     <div>
                         <label className="block text-sm font-medium">Tên</label>
                         <input name="name" value={formData.name} onChange={handleChange} className="w-full p-2 border rounded-md" />
@@ -180,16 +147,6 @@ const ProductEditModal: React.FC<{ product: Product | null, onClose: () => void,
                            <input name="stock" type="number" value={formData.stock || 0} onChange={handleChange} className="w-full p-2 border rounded-md" />
                         </div>
                     </div>
-                     <div>
-                        <label className="block text-sm font-medium">Ảnh sản phẩm</label>
-                        <div className="flex items-center gap-3 mt-1">
-                           <input name="imageUrl" value={(formData as any).imageUrl || ''} onChange={handleChange} className="w-full p-2 border rounded-md bg-gray-50" placeholder="URL hình ảnh..."/>
-                           <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="flex-shrink-0 bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50">
-                               {isUploading ? 'Đang tải...' : 'Tải lên'}
-                           </button>
-                        </div>
-                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/png, image/jpeg, image/webp" />
-                    </div>
                     <div>
                         <label className="flex items-center gap-2">
                            <input name="isVisible" type="checkbox" checked={formData.isVisible} onChange={handleChange} className="h-4 w-4 rounded" />
@@ -199,7 +156,7 @@ const ProductEditModal: React.FC<{ product: Product | null, onClose: () => void,
                 </div>
                 <div className="mt-6 flex justify-end gap-3">
                     <button onClick={onClose} className="bg-gray-200 text-gray-800 font-semibold px-4 py-2 rounded-lg hover:bg-gray-300">Hủy</button>
-                    <button onClick={() => onSave(formData)} className="bg-luvin-pink text-white font-semibold px-4 py-2 rounded-lg hover:opacity-90">Lưu</button>
+                    <button onClick={() => onSave(formData as Product)} className="bg-luvin-pink text-white font-semibold px-4 py-2 rounded-lg hover:opacity-90">Lưu</button>
                 </div>
             </div>
         </div>

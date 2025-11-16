@@ -1,4 +1,7 @@
-export type Page = 'home' | 'builder' | 'collection' | 'feedback' | 'order-lookup' | 'contact' | 'cart' | 'checkout' | 'order-confirmation' | 'login' | 'admin-dashboard' | 'admin-orders' | 'admin-products' | 'admin-backgrounds';
+// FIX: Removed import of FrameConfig from './App' as it caused a circular dependency and is defined within this file.
+
+// FIX: Update Page type to include admin-related pages.
+export type Page = 'home' | 'builder' | 'collection' | 'feedback' | 'order-lookup' | 'contact' | 'cart' | 'checkout' | 'order-confirmation' | 'login' | 'admin-dashboard' | 'admin-orders' | 'admin-products';
 
 export interface FrameOption {
   id: string;
@@ -10,6 +13,7 @@ export interface FrameOption {
   price: number;
   imageUrl: string;
   description: string;
+  // FIX: Add optional properties for product management.
   stock?: number;
   isVisible?: boolean;
 }
@@ -18,18 +22,19 @@ export interface OutfitColor {
   name: string;
   hex: string;
   imageUrl: string;
-  price: number;
+  price: number; // Additional price for this color
 }
 
 export interface LegoPart {
   id: string;
   name: string;
-  price: number;
+  price: number; // Base price (for default color)
   imageUrl: string;
   type: 'hair' | 'face' | 'shirt' | 'pants' | 'accessory' | 'pet' | 'hat';
   widthCm?: number;
   heightCm?: number;
   colors?: OutfitColor[];
+  // FIX: Add optional properties for product management.
   stock?: number;
   isVisible?: boolean;
 }
@@ -44,37 +49,38 @@ export interface LegoCharacterConfig {
   selectedShirtColor?: OutfitColor; 
   selectedPantsColor?: OutfitColor;
   customPrintPrice?: number;
-  x: number;
-  y: number;
-  rotation: number;
-  scale: number;
+  x: number; // percentage from left
+  y: number; // percentage from top
+  rotation: number; // degrees
+  scale: number; // multiplier
 }
 
 export interface TextConfig {
   id: number;
   content: string;
   font: string;
-  size: number;
+  size: number; // Now a relative size, e.g., 1-100
   color: string;
-  x: number;
-  y: number;
-  rotation: number;
-  scale: number;
+  x: number; // percentage from left
+  y: number; // percentage from top
+  rotation: number; // degrees
+  scale: number; // multiplier
   background: boolean;
   textAlign?: 'left' | 'center' | 'right';
-  width?: number;
+  width?: number; // Optional width for the text box in pixels
 }
 
 export interface DraggableItem {
     id: number;
-    partId: string;
+    partId: string; // For accessories/pets, it's the LegoPart ID. For charms, it's the data URL.
     type: 'accessory' | 'pet' | 'charm';
-    x: number;
-    y: number;
-    rotation: number;
-    scale: number;
+    x: number; // percentage from left
+    y: number; // percentage from top
+    rotation: number; // degrees
+    scale: number; // multiplier
 }
 
+// FIX: Define the missing BackgroundConfig interface.
 export interface BackgroundConfig {
   type: 'color' | 'image' | 'upload';
   value: string;
@@ -89,8 +95,7 @@ export interface FrameConfig {
   previewImageUrl?: string;
 }
 
-// Transient type for checkout form data before it's processed and saved
-export interface CheckoutFormDetails {
+export interface OrderDetails {
     orderId: string;
     customer: {
         name: string;
@@ -113,50 +118,24 @@ export interface CheckoutFormDetails {
     vietQRUrl: string;
     transferContent: string;
     desiredDeliveryDate?: string;
-    // FIX: Add createdAt property to align with its usage when creating and processing order details.
-    createdAt: string;
+    // FIX: Add createdAt to match server data for sorting.
+    createdAt?: string;
 }
 
 export type OrderStatus = 'Chờ thanh toán' | 'Đã xác nhận' | 'Đang xử lý' | 'Đang giao hàng' | 'Đã giao hàng' | 'Đã hủy';
 
-// Represents the `orders` table structure
-export interface Order {
-  id: string; // UUID from DB
-  order_id_str: string;
+export interface StoredOrder {
   status: OrderStatus;
-  customer_name: string;
-  customer_phone: string;
-  customer_address: string;
-  total_price: number;
-  desired_delivery_date?: string;
-  created_at: string;
-  // Include all other columns from the 'orders' table
-  customer_email?: string;
-  shipping_method?: string;
-  shipping_cost?: number;
-  packaging_fee?: number;
-  amount_paid?: number;
-  amount_remaining?: number;
-  payment_method?: string;
-  notes?: string;
+  details: OrderDetails;
 }
 
-// Represents the `order_items` table structure
-export interface OrderItem {
-    id: string; // UUID from DB
-    order_id: string;
-    frame_config: FrameConfig;
-    preview_image_url?: string;
-    price: number;
-}
-
+// FIX: Add missing User type for authentication context.
 export interface User {
     username: string;
     role: 'admin' | 'staff';
 }
 
-export type Product = (LegoPart | FrameOption) & { type: 'frame' | LegoPart['type'] };
-
+// FIX: Add missing AllProducts type for product management.
 export interface AllProducts {
   frames: FrameOption[];
   lego_parts: {
@@ -169,18 +148,4 @@ export interface AllProducts {
     accessory: LegoPart[];
     pet: LegoPart[];
   };
-}
-
-export interface BackgroundOption {
-    id: string;
-    name: string;
-    url: string;
-    category: string;
-    isVisible: boolean;
-    type: 'square' | 'rectangle';
-}
-
-export interface AllBackgrounds {
-    square: BackgroundOption[];
-    rectangle: BackgroundOption[];
 }
