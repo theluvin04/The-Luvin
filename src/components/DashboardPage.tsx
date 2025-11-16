@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
-import type { StoredOrder } from '../types';
+import type { Order } from '../types';
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 
@@ -9,32 +9,37 @@ const DashboardPage: React.FC<{ showToast: (msg: string, type: 'success' | 'erro
         totalRevenue: 0,
         newOrdersCount: 0,
         averageOrderValue: 0,
-        recentOrders: [] as StoredOrder[],
-        urgentOrders: [] as StoredOrder[],
+        recentOrders: [] as Order[],
+        urgentOrders: [] as Order[],
     });
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const { data, error } = await supabase.from('orders').select('details, created_at, status');
+                // FIX: Select all columns to match the 'Order' type.
+                const { data, error } = await supabase.from('orders').select('*');
                 if (error) throw error;
                 
-                const orders: StoredOrder[] = data.map((o: any) => ({ status: o.status, details: o.details }));
+                // FIX: Use 'Order[]' type and direct data mapping.
+                const orders: Order[] = data || [];
                 
-                const totalRevenue = orders.reduce((sum, order) => sum + order.details.pricing.total, 0);
+                // FIX: Use 'total_price' from the order object.
+                const totalRevenue = orders.reduce((sum, order) => sum + order.total_price, 0);
                 
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
-                const newOrdersCount = orders.filter(o => new Date(o.details.createdAt!) > yesterday).length;
+                // FIX: Use 'created_at' from the order object.
+                const newOrdersCount = orders.filter(o => new Date(o.created_at) > yesterday).length;
 
                 const recentOrders = [...orders]
-                    .sort((a, b) => new Date(b.details.createdAt!).getTime() - new Date(a.details.createdAt!).getTime())
+                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                     .slice(0, 5);
 
+                // FIX: Use 'desired_delivery_date' from the order object.
                 const urgentOrders = orders.filter(o => {
-                    if (!o.details.desiredDeliveryDate) return false;
-                    const diffDays = (new Date(o.details.desiredDeliveryDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24);
+                    if (!o.desired_delivery_date) return false;
+                    const diffDays = (new Date(o.desired_delivery_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24);
                     return diffDays >= 0 && diffDays < 3;
                 });
                 
@@ -81,12 +86,12 @@ const DashboardPage: React.FC<{ showToast: (msg: string, type: 'success' | 'erro
                     <h3 className="font-semibold mb-4">Đơn hàng cần xử lý gấp (Giao trong 3 ngày)</h3>
                     <div className="space-y-3">
                         {stats.urgentOrders.length > 0 ? stats.urgentOrders.map(order => (
-                             <div key={order.details.orderId} className="text-sm flex justify-between items-center bg-red-50 p-2 rounded-md">
+                             <div key={order.id} className="text-sm flex justify-between items-center bg-red-50 p-2 rounded-md">
                                 <div>
-                                    <p className="font-bold">{order.details.orderId}</p>
-                                    <p className="text-xs text-gray-600">{order.details.customer.name}</p>
+                                    <p className="font-bold">{order.order_id_str}</p>
+                                    <p className="text-xs text-gray-600">{order.customer_name}</p>
                                 </div>
-                                <p className="font-semibold text-red-700">{new Date(order.details.desiredDeliveryDate!).toLocaleDateString('vi-VN')}</p>
+                                <p className="font-semibold text-red-700">{new Date(order.desired_delivery_date!).toLocaleDateString('vi-VN')}</p>
                             </div>
                         )) : <p className="text-sm text-gray-500">Không có đơn hàng nào cần xử lý gấp.</p>}
                     </div>
@@ -95,12 +100,12 @@ const DashboardPage: React.FC<{ showToast: (msg: string, type: 'success' | 'erro
                     <h3 className="font-semibold mb-4">Đơn hàng mới nhất</h3>
                     <div className="space-y-3">
                         {stats.recentOrders.length > 0 ? stats.recentOrders.map(order => (
-                            <div key={order.details.orderId} className="text-sm flex justify-between items-center">
+                            <div key={order.id} className="text-sm flex justify-between items-center">
                                 <div>
-                                    <p className="font-bold">{order.details.orderId}</p>
-                                    <p className="text-xs text-gray-600">{order.details.customer.name}</p>
+                                    <p className="font-bold">{order.order_id_str}</p>
+                                    <p className="text-xs text-gray-600">{order.customer_name}</p>
                                 </div>
-                                <p className="font-semibold">{formatCurrency(order.details.pricing.total)}</p>
+                                <p className="font-semibold">{formatCurrency(order.total_price)}</p>
                             </div>
                         )) : <p className="text-sm text-gray-500">Chưa có đơn hàng nào.</p>}
                     </div>

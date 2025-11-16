@@ -89,7 +89,8 @@ export interface FrameConfig {
   previewImageUrl?: string;
 }
 
-export interface OrderDetails {
+// FIX: Renamed OrderDetails to CheckoutFormDetails to fix import error in App.tsx.
+export interface CheckoutFormDetails {
     orderId: string;
     customer: {
         name: string;
@@ -119,7 +120,28 @@ export type OrderStatus = 'Chờ thanh toán' | 'Đã xác nhận' | 'Đang xử
 
 export interface StoredOrder {
   status: OrderStatus;
-  details: OrderDetails;
+  details: CheckoutFormDetails;
+}
+
+// FIX: Added 'Order' type to represent the database schema and fix implicit errors in admin pages.
+export interface Order {
+  id: string; // UUID from DB
+  order_id_str: string;
+  status: OrderStatus;
+  customer_name: string;
+  customer_phone: string;
+  customer_address: string;
+  total_price: number;
+  desired_delivery_date?: string;
+  created_at: string;
+  customer_email?: string;
+  shipping_method?: string;
+  shipping_cost?: number;
+  packaging_fee?: number;
+  amount_paid?: number;
+  amount_remaining?: number;
+  payment_method?: string;
+  notes?: string;
 }
 
 export interface User {
