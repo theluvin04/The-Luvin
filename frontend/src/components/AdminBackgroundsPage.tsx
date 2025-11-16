@@ -151,7 +151,7 @@ const AdminBackgroundsPage: React.FC<{
 };
 
 const BackgroundEditModal: React.FC<{ background: BackgroundWithType | null, onClose: () => void, onSave: (bg: BackgroundWithType) => void }> = ({ background, onClose, onSave }) => {
-    const [formData, setFormData] = useState(background || { name: '', url: '', category: '', isVisible: true, id: '', type: 'square' });
+    const [formData, setFormData] = useState<BackgroundWithType>(background || { name: '', url: '', category: '', isVisible: true, id: '', type: 'square' });
 
     // FIX: The generic `handleChange` was widening the `type` property to a generic `string`.
     // This updated version handles the `type` property specifically to maintain its strict type.

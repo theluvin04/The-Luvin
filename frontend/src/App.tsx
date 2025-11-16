@@ -3,7 +3,7 @@ export const API_BASE_URL = '';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 // FIX: Update type imports to include AllProducts for admin functionality.
-import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, OrderDetails, StoredOrder, OrderStatus, AllProducts, AllBackgrounds } from './types';
+import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, OrderDetails, StoredOrder, OrderStatus, AllProducts, AllBackgrounds } from './types.ts';
 import { 
     FRAME_OPTIONS, 
     LEGO_PARTS, 
@@ -14,15 +14,17 @@ import {
     PRESET_BACKGROUNDS_RECTANGLE, 
     PRODUCT_HIGHLIGHTS,
     GENERAL_ASSETS,
-} from './constants';
-import FramePreview from './components/FramePreview';
+} from './constants.tsx';
+import FramePreview from './components/FramePreview.tsx';
 // FIX: Import admin components
-import LoginPage from './components/LoginPage';
-import AdminLayout from './components/AdminLayout';
-import AdminPage from './components/AdminPage';
-import DashboardPage from './components/DashboardPage';
-import ProductManagementPage from './components/ProductManagementPage';
-import AdminBackgroundsPage from './components/AdminBackgroundsPage';
+import LoginPage from './components/LoginPage.tsx';
+import AdminLayout from './components/AdminLayout.tsx';
+import AdminPage from './components/AdminPage.tsx';
+import DashboardPage from './components/DashboardPage.tsx';
+import ProductManagementPage from './components/ProductManagementPage.tsx';
+import AdminBackgroundsPage from './components/AdminBackgroundsPage.tsx';
+// FIX: Import useAuth to handle authentication state
+import { useAuth } from './AuthContext.tsx';
 
 
 declare var html2canvas: any;
@@ -1938,7 +1940,6 @@ const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () 
     );
 };
 
-
 const App: React.FC = () => {
   const [page, setPage] = useState<Page>('home');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -1964,92 +1965,98 @@ const App: React.FC = () => {
   });
 
   const [allOrders, setAllOrders] = useState<Record<string, StoredOrder>>({});
-  // FIX: Add state for all products for the admin panel.
-  const [allProducts, setAllProducts] = useState<AllProducts | null>(null);
-  const [allBackgrounds, setAllBackgrounds] = useState<AllBackgrounds | null>(null);
-
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-      setToast({ message, type });
-  };
-  
-  // FIX: Add function to fetch all products for the admin panel.
+  const [allProducts, setAllProducts] = useState<AllProducts | null>(null);
+  const [allBackgrounds, setAllBackgrounds] = useState<AllBackgrounds | null>(null);
+  const { isAuthenticated } = useAuth();
+
   const fetchAllProducts = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/products`);
-      if (!response.ok) throw new Error('Failed to fetch products');
-      const data = await response.json();
-      setAllProducts(data);
-    } catch (error) {
-      console.error("Failed to fetch products", error);
-      showToast("Could not load product data.", "error");
-    }
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/products`);
+          if (!res.ok) throw new Error('Failed to fetch products');
+          const data = await res.json();
+          setAllProducts(data);
+      } catch (e) {
+          console.error(e);
+          showToast("Không thể tải dữ liệu sản phẩm", "error");
+      }
   }, []);
-  
+
   const fetchAllBackgrounds = useCallback(async () => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/backgrounds`);
-        if (!response.ok) throw new Error('Failed to fetch backgrounds');
-        const data = await response.json();
-        setAllBackgrounds(data);
-    } catch (error) {
-        console.error("Failed to fetch backgrounds", error);
-        showToast("Could not load background data.", "error");
-    }
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/backgrounds`);
+          if (!res.ok) throw new Error('Failed to fetch backgrounds');
+          const data = await res.json();
+          setAllBackgrounds(data);
+      } catch (e) {
+          console.error(e);
+          showToast("Không thể tải dữ liệu nền", "error");
+      }
   }, []);
 
   useEffect(() => {
-    fetchAllProducts();
-    fetchAllBackgrounds();
+      fetchAllProducts();
+      fetchAllBackgrounds();
   }, [fetchAllProducts, fetchAllBackgrounds]);
-
-
-  useEffect(() => {
-    try {
-        const savedOrders = localStorage.getItem('luvinAllOrders');
-        if (savedOrders) {
-            setAllOrders(JSON.parse(savedOrders));
-        }
-    } catch (error) {
-        console.error("Failed to load orders from localStorage", error);
-    }
+  
+  const navigateTo = useCallback((newPage: Page) => {
+    window.location.hash = `/${newPage}`;
+    window.scrollTo(0, 0);
   }, []);
 
   useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#/', '');
+      const newPage = (hash || 'home') as Page;
+      if (newPage.startsWith('admin') && !isAuthenticated) {
+        setPage('login');
+      } else {
+        setPage(newPage);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    handleHashChange();
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [isAuthenticated]);
+  
+  useEffect(() => {
     try {
-        // Don't save preview image to localStorage as it can be large
-        const { previewImageUrl, ...configToSave } = frameConfig;
-        localStorage.setItem('luvinFrameConfig', JSON.stringify(configToSave));
+      localStorage.setItem('luvinFrameConfig', JSON.stringify(frameConfig));
     } catch (error) {
-        console.error("Failed to save frameConfig to localStorage", error);
+      console.error("Failed to save frameConfig to localStorage", error);
     }
   }, [frameConfig]);
 
   useEffect(() => {
     try {
-        localStorage.setItem('luvinCartItems', JSON.stringify(cartItems));
+      localStorage.setItem('luvinCartItems', JSON.stringify(cartItems));
     } catch (error) {
-        console.error("Failed to save cartItems to localStorage", error);
+      console.error("Failed to save cartItems to localStorage", error);
     }
   }, [cartItems]);
+  
+  useEffect(() => {
+    try {
+      const savedOrders = localStorage.getItem('luvinAllOrders');
+      if (savedOrders) setAllOrders(JSON.parse(savedOrders));
+    } catch (e) { console.error(e); }
+  }, []);
 
   useEffect(() => {
     try {
-        if (Object.keys(allOrders).length > 0) {
-            localStorage.setItem('luvinAllOrders', JSON.stringify(allOrders));
-        }
-    } catch (error) {
-        console.error("Failed to save orders to localStorage", error);
-    }
+      if (Object.keys(allOrders).length) {
+        localStorage.setItem('luvinAllOrders', JSON.stringify(allOrders));
+      }
+    } catch (e) { console.error(e); }
   }, [allOrders]);
 
-  // FIX: Correctly type and memoize the allParts object.
-  const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc: Record<string, LegoPart>, part: LegoPart) => {
-    acc[part.id] = part;
-    return acc;
-  }, {}), []);
+  const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc: Record<string, LegoPart>, part) => ({ ...acc, [part.id]: part }), {}), []);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+      setToast({ message, type });
+  };
 
   const handleAddToCart = (config: FrameConfig) => {
       setCartItems(prev => [...prev, config]);
@@ -2060,25 +2067,23 @@ const App: React.FC = () => {
       setCartItems(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  const navigateTo = useCallback((newPage: Page) => {
-    setPage(newPage);
-    window.scrollTo(0, 0);
-  }, []);
-
-  const handleConfirmOrder = (details: OrderDetails) => {
-      const newOrder: StoredOrder = {
-        status: 'Chờ thanh toán',
-        details: details,
-      };
-      setAllOrders(prev => ({
-        ...prev,
-        [details.orderId]: newOrder,
-      }));
-
-      setOrderDetails(details);
-      // Clear cart after order is placed
-      setCartItems([]);
-      navigateTo('order-confirmation');
+  const handleConfirmOrder = async (details: OrderDetails) => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(details),
+        });
+        if (!response.ok) throw new Error('Failed to create order');
+        const newOrder: StoredOrder = await response.json();
+        setAllOrders(prev => ({...prev, [newOrder.details.orderId]: newOrder }));
+        setOrderDetails(details);
+        setCartItems([]);
+        navigateTo('order-confirmation');
+    } catch (e) {
+        console.error(e);
+        showToast("Lỗi khi tạo đơn hàng, vui lòng thử lại.", "error");
+    }
   };
   
   const renderCurrentPage = () => {
@@ -2088,23 +2093,34 @@ const App: React.FC = () => {
       case 'collection': return <CollectionPage navigateTo={navigateTo} setConfig={setFrameConfig} />;
       case 'cart': return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allParts={allParts} navigateTo={navigateTo} />;
       case 'checkout': return <CheckoutPage cartItems={cartItems} allParts={allParts} onConfirmOrder={handleConfirmOrder} />;
-      case 'order-confirmation': return orderDetails ? <OrderConfirmationPage details={orderDetails} allParts={allParts} /> : <CheckoutPage cartItems={cartItems} allParts={allParts} onConfirmOrder={handleConfirmOrder} />;
+      case 'order-confirmation': return orderDetails ? <OrderConfirmationPage details={orderDetails} allParts={allParts} /> : <HomePage navigateTo={navigateTo} />;
       case 'order-lookup': return <OrderLookupPage allOrders={allOrders} />;
       case 'contact': return <ContactPage />;
-      // FIX: Add routes for admin pages
       case 'login': return <LoginPage navigateTo={navigateTo} showToast={showToast} />;
-      case 'admin-dashboard': return <AdminLayout navigateTo={navigateTo} page={page}><DashboardPage showToast={showToast} /></AdminLayout>;
-      case 'admin-orders': return <AdminLayout navigateTo={navigateTo} page={page}><AdminPage showToast={showToast} /></AdminLayout>;
-      case 'admin-products': return <AdminLayout navigateTo={navigateTo} page={page}><ProductManagementPage allProducts={allProducts} onProductUpdate={fetchAllProducts} showToast={showToast} /></AdminLayout>;
-      case 'admin-backgrounds': return <AdminLayout navigateTo={navigateTo} page={page}><AdminBackgroundsPage allBackgrounds={allBackgrounds} onUpdate={fetchAllBackgrounds} showToast={showToast} /></AdminLayout>;
-      default: return <HomePage navigateTo={navigateTo} />;
+      case 'admin-dashboard':
+      case 'admin-orders':
+      case 'admin-products':
+      case 'admin-backgrounds':
+        return (
+          <AdminLayout navigateTo={navigateTo} page={page}>
+            {page === 'admin-dashboard' && <DashboardPage showToast={showToast} />}
+            {page === 'admin-orders' && <AdminPage showToast={showToast} />}
+            {page === 'admin-products' && <ProductManagementPage allProducts={allProducts} showToast={showToast} onProductUpdate={fetchAllProducts} />}
+            {page === 'admin-backgrounds' && <AdminBackgroundsPage allBackgrounds={allBackgrounds} showToast={showToast} onUpdate={fetchAllBackgrounds} />}
+          </AdminLayout>
+        );
+      default: 
+        navigateTo('home');
+        return <HomePage navigateTo={navigateTo} />;
     }
   };
+  
+  const showHeaderFooter = !page.startsWith('admin') && page !== 'login';
 
   return (
     <div className={`min-h-screen flex flex-col text-gray-800 bg-white`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} />
+      {showHeaderFooter && <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} />}
       <CartPanel 
         isOpen={isCartOpen} 
         onClose={() => setIsCartOpen(false)}
@@ -2116,7 +2132,7 @@ const App: React.FC = () => {
       <main className="flex-grow">
         {renderCurrentPage()}
       </main>
-      <Footer />
+      {showHeaderFooter && <Footer />}
     </div>
   );
 };

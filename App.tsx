@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, OrderDetails, StoredOrder, OrderStatus } from './types';
+import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, OrderDetails, StoredOrder, OrderStatus } from './types.ts';
 import { 
     FRAME_OPTIONS, 
     LEGO_PARTS, 
@@ -11,8 +11,8 @@ import {
     PRESET_BACKGROUNDS_RECTANGLE, 
     PRODUCT_HIGHLIGHTS,
     GENERAL_ASSETS,
-} from './constants';
-import FramePreview from './components/FramePreview';
+} from './constants.tsx';
+import FramePreview from './components/FramePreview.tsx';
 
 declare var html2canvas: any;
 

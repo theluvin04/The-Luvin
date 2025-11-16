@@ -1,7 +1,7 @@
 // FIX: import useMemo from React
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import type { FrameConfig, LegoPart, TextConfig } from '../types';
-import { FRAME_OPTIONS, LEGO_PARTS } from '../constants';
+import type { FrameConfig, LegoPart, TextConfig } from '../types.ts';
+import { FRAME_OPTIONS, LEGO_PARTS } from '../constants.tsx';
 
 type Transform = {
   x: number;
