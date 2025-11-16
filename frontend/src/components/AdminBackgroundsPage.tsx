@@ -159,13 +159,15 @@ const BackgroundEditModal: React.FC<{ background: BackgroundWithType | null, onC
         const { name, value, type } = e.target;
         const isCheckbox = type === 'checkbox';
         setFormData(prev => {
-            const updated = { ...prev, [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value };
+            // By handling the 'type' property separately, we ensure TypeScript
+            // doesn't widen its type from '"square" | "rectangle"' to a generic 'string'.
             if (name === 'type') {
-                // This cast is safe because the select element only allows these values.
-                // It prevents TypeScript from widening the type to a generic 'string'.
-                updated.type = value as 'square' | 'rectangle';
+                return { ...prev, type: value as 'square' | 'rectangle' };
             }
-            return updated;
+            return {
+                ...prev,
+                [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value,
+            };
         });
     };
 
