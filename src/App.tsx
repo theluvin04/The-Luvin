@@ -1,3 +1,5 @@
+
+
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, OrderDetails, StoredOrder, OrderStatus, AllProducts, AllBackgrounds, FrameOption, BackgroundOption } from './types';
 import { 
@@ -1871,7 +1873,14 @@ const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () 
 
 
 const App: React.FC = () => {
-  const [page, setPage] = useState<Page>('home');
+  // Navigation state managed by URL hash
+  const getPageFromHash = (): Page => {
+    const hash = window.location.hash.replace(/^#\//, '');
+    const validPages: Page[] = ['home', 'builder', 'collection', 'cart', 'checkout', 'order-confirmation', 'order-lookup', 'contact', 'login', 'admin-dashboard', 'admin-orders', 'admin-products', 'admin-backgrounds'];
+    return validPages.includes(hash as Page) ? (hash as Page) : 'home';
+  };
+  const [page, setPage] = useState<Page>(getPageFromHash);
+
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
 
@@ -1894,7 +1903,21 @@ const App: React.FC = () => {
   const [isDataLoading, setIsDataLoading] = useState(true);
 
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
+  const [checkoutDetails, setCheckoutDetails] = useState<OrderDetails | null>(null);
+
+  // Set up hash-based routing
+  useEffect(() => {
+    const handleHashChange = () => {
+      setPage(getPageFromHash());
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const navigateTo = useCallback((newPage: Page) => {
+    window.location.hash = `/${newPage}`;
+  }, []);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
       setToast({ message, type });
@@ -1913,15 +1936,14 @@ const App: React.FC = () => {
         
         const products: AllProducts = { frames: [], lego_parts: { hair: [], face: [], shirt: [], pants: [], hat: [], accessory: [], pet: [] } };
         (productsData || []).forEach(p => {
-            if (p.type === 'frame') products.frames.push(p as FrameOption);
-            // @ts-ignore
-            else if (products.lego_parts[p.type]) products.lego_parts[p.type].push(p as LegoPart);
+            if (p.type === 'frame') products.frames.push(p as any);
+            else if ((products.lego_parts as any)[p.type]) (products.lego_parts as any)[p.type].push(p as any);
         });
 
         const backgrounds: AllBackgrounds = { square: [], rectangle: [] };
         (backgroundsData || []).forEach(b => {
-            if (b.type === 'square') backgrounds.square.push(b as BackgroundOption);
-            else if (b.type === 'rectangle') backgrounds.rectangle.push(b as BackgroundOption);
+            if (b.type === 'square') backgrounds.square.push(b as any);
+            else if (b.type === 'rectangle') backgrounds.rectangle.push(b as any);
         });
 
         setAllProducts(products);
@@ -1934,36 +1956,12 @@ const App: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+  useEffect(() => { fetchInitialData(); }, [fetchInitialData]);
+  useEffect(() => { try { const { previewImageUrl, ...c } = frameConfig; localStorage.setItem('luvinFrameConfig', JSON.stringify(c)); } catch (e) { console.error(e); } }, [frameConfig]);
+  useEffect(() => { try { localStorage.setItem('luvinCartItems', JSON.stringify(cartItems)); } catch (e) { console.error(e); } }, [cartItems]);
 
-  useEffect(() => {
-    try {
-        const { previewImageUrl, ...configToSave } = frameConfig;
-        localStorage.setItem('luvinFrameConfig', JSON.stringify(configToSave));
-    } catch (error) { console.error("Failed to save frameConfig", error); }
-  }, [frameConfig]);
-
-  useEffect(() => {
-    try {
-        localStorage.setItem('luvinCartItems', JSON.stringify(cartItems));
-    } catch (error) { console.error("Failed to save cartItems", error); }
-  }, [cartItems]);
-
-  const handleAddToCart = (config: FrameConfig) => {
-      setCartItems(prev => [...prev, config]);
-      showToast('Đã thêm vào giỏ hàng!');
-  };
-
-  const handleRemoveFromCart = (indexToRemove: number) => {
-      setCartItems(prev => prev.filter((_, index) => index !== indexToRemove));
-  };
-
-  const navigateTo = useCallback((newPage: Page) => {
-    setPage(newPage);
-    window.scrollTo(0, 0);
-  }, []);
+  const handleAddToCart = (config: FrameConfig) => { setCartItems(prev => [...prev, config]); showToast('Đã thêm vào giỏ hàng!'); };
+  const handleRemoveFromCart = (indexToRemove: number) => { setCartItems(prev => prev.filter((_, index) => index !== indexToRemove)); };
 
   const handleConfirmOrder = async (details: OrderDetails) => {
       const { data, error } = await supabase
@@ -1974,29 +1972,25 @@ const App: React.FC = () => {
         showToast('Không thể tạo đơn hàng, vui lòng thử lại.', 'error');
         console.error('Supabase order insert error:', error);
       } else {
-        setOrderDetails(details);
+// FIX: The state setter is named `setCheckoutDetails`, not `setOrderDetails`.
+        setCheckoutDetails(details);
         setCartItems([]);
         navigateTo('order-confirmation');
       }
   };
   
   const renderCurrentPage = () => {
-    if (isAuthLoading || isDataLoading) {
-      return <div className="flex items-center justify-center h-screen"><p>Đang tải ứng dụng...</p></div>;
-    }
-
+    if (isAuthLoading || isDataLoading) { return <div className="flex items-center justify-center h-screen"><p>Đang tải ứng dụng...</p></div>; }
     const adminPages: Page[] = ['admin-dashboard', 'admin-orders', 'admin-products', 'admin-backgrounds'];
-    if (adminPages.includes(page) && !isAuthenticated) {
-      return <LoginPage navigateTo={navigateTo} showToast={showToast} />;
-    }
-
+    if (adminPages.includes(page) && !isAuthenticated) { return <LoginPage navigateTo={navigateTo} showToast={showToast} />; }
     switch (page) {
       case 'home': return <HomePage navigateTo={navigateTo} />;
       case 'builder': return <BuilderPage config={frameConfig} setConfig={setFrameConfig} navigateTo={navigateTo} onAddToCart={handleAddToCart} showToast={showToast} allProducts={allProducts} allBackgrounds={allBackgrounds} />;
       case 'collection': return <CollectionPage navigateTo={navigateTo} setConfig={setFrameConfig} allProducts={allProducts} />;
       case 'cart': return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allProducts={allProducts} navigateTo={navigateTo} />;
       case 'checkout': return <CheckoutPage cartItems={cartItems} allProducts={allProducts} onConfirmOrder={handleConfirmOrder} />;
-      case 'order-confirmation': return orderDetails ? <OrderConfirmationPage details={orderDetails} allProducts={allProducts} /> : <CheckoutPage cartItems={cartItems} allProducts={allProducts} onConfirmOrder={handleConfirmOrder} />;
+// FIX: The state variable is named `checkoutDetails`, not `orderDetails`.
+      case 'order-confirmation': return checkoutDetails ? <OrderConfirmationPage details={checkoutDetails} allProducts={allProducts} /> : <HomePage navigateTo={navigateTo} />;
       case 'order-lookup': return <OrderLookupPage allProducts={allProducts} />;
       case 'contact': return <ContactPage />;
       case 'login': return <LoginPage navigateTo={navigateTo} showToast={showToast} />;
@@ -2012,17 +2006,8 @@ const App: React.FC = () => {
     <div className={`min-h-screen flex flex-col text-gray-800 bg-white`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} />
-      <CartPanel 
-        isOpen={isCartOpen} 
-        onClose={() => setIsCartOpen(false)}
-        cartItems={cartItems}
-        onRemoveItem={handleRemoveFromCart}
-        allProducts={allProducts}
-        navigateTo={navigateTo}
-      />
-      <main className="flex-grow">
-        {renderCurrentPage()}
-      </main>
+      <CartPanel isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allProducts={allProducts} navigateTo={navigateTo} />
+      <main className="flex-grow">{renderCurrentPage()}</main>
       <Footer />
     </div>
   );
