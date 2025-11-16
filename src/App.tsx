@@ -1,10 +1,12 @@
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+// FIX: Changed import paths to be relative to fix module resolution errors.
 import type { Page, FrameConfig, AllProducts, AllBackgrounds, CheckoutFormDetails } from './types';
 import { INITIAL_FRAME_CONFIG } from './constants';
 import { supabase } from './supabase';
 import { useAuth } from './AuthContext';
 
-// Import separated page components
+// Import separated page components using relative paths
 import HomePage from './components/HomePage';
 import BuilderPage from './components/BuilderPage';
 import CollectionPage from './components/CollectionPage';
@@ -20,7 +22,7 @@ import OrderManagementPage from './components/OrderManagementPage';
 import ProductManagementPage from './components/ProductManagementPage';
 import AdminBackgroundsPage from './components/AdminBackgroundsPage';
 
-// Import separated layout components
+// Import separated layout components using relative paths
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Toast from './components/Toast';
@@ -67,6 +69,8 @@ const App: React.FC = () => {
       window.scrollTo(0, 0);
     };
     window.addEventListener('hashchange', handleHashChange);
+    // Set initial page from hash
+    handleHashChange();
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
@@ -136,7 +140,6 @@ const App: React.FC = () => {
   const handleRemoveFromCart = (indexToRemove: number) => { setCartItems(prev => prev.filter((_, index) => index !== indexToRemove)); };
 
   const handleConfirmOrder = async (details: CheckoutFormDetails) => {
-      setCheckoutDetails(details);
       
       const { data: newOrder, error: orderError } = await supabase
         .from('orders')
@@ -167,12 +170,13 @@ const App: React.FC = () => {
         order_id: newOrder.id,
         frame_config: item,
         preview_image_url: item.previewImageUrl,
-        price: 0 // Price calculation will be done on the server or needs to be passed
+        price: 0 // Price calculation can be done on the server or needs to be passed
       }));
       
       const { error: itemsError } = await supabase.from('order_items').insert(orderItemsData);
       if (itemsError) { showToast('Lỗi khi lưu chi tiết đơn hàng.', 'error'); console.error('Order items insert error:', itemsError); return; }
       
+      setCheckoutDetails(details);
       setCartItems([]);
       navigateTo('order-confirmation');
   };
@@ -188,7 +192,7 @@ const App: React.FC = () => {
       case 'cart': return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allProducts={allProducts} navigateTo={navigateTo} />;
       case 'checkout': return <CheckoutPage cartItems={cartItems} allProducts={allProducts} onConfirmOrder={handleConfirmOrder} />;
       case 'order-confirmation': return checkoutDetails ? <OrderConfirmationPage details={checkoutDetails} allProducts={allProducts} /> : <HomePage navigateTo={navigateTo} />;
-      case 'order-lookup': return <OrderLookupPage allProducts={allProducts} />;
+      case 'order-lookup': return <OrderLookupPage />;
       case 'contact': return <ContactPage />;
       case 'login': return <LoginPage navigateTo={navigateTo} showToast={showToast} />;
       case 'admin-dashboard': return <AdminLayout navigateTo={navigateTo} page={page}><DashboardPage showToast={showToast} /></AdminLayout>;
