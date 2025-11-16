@@ -113,6 +113,8 @@ export interface CheckoutFormDetails {
     vietQRUrl: string;
     transferContent: string;
     desiredDeliveryDate?: string;
+    // FIX: Add createdAt property to align with its usage when creating and processing order details.
+    createdAt: string;
 }
 
 export type OrderStatus = 'Chờ thanh toán' | 'Đã xác nhận' | 'Đang xử lý' | 'Đang giao hàng' | 'Đã giao hàng' | 'Đã hủy';
