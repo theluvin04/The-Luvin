@@ -19,7 +19,8 @@ const ProductManagementPage: React.FC<{
         if (!allProducts) return [];
         const frames = allProducts.frames.map(f => ({ ...f, category: 'frames', type: 'frame' as const }));
         const parts = Object.entries(allProducts.lego_parts).flatMap(([category, items]) =>
-            items.map(p => ({ ...p, category }))
+            // FIX: Check if 'items' is an array before mapping to fix 'unknown' type from Object.entries.
+            Array.isArray(items) ? items.map(p => ({ ...p, category })) : []
         );
         return [...frames, ...parts];
     }, [allProducts]);
