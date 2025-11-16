@@ -14,18 +14,12 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* Alias Configuration */
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    },
-
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
+  "include": ["src", "components", "*.ts", "*.tsx", "frontend"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
