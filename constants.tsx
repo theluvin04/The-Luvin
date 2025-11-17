@@ -1,6 +1,5 @@
-
-import type { FrameOption, LegoPart, FrameConfig, OutfitColor } from './types.ts';
-import { IMAGE_ASSETS } from './assets.ts';
+import type { FrameOption, LegoPart, FrameConfig, OutfitColor } from './types';
+import { IMAGE_ASSETS } from './assets';
 
 
 export const FRAME_OPTIONS: FrameOption[] = [

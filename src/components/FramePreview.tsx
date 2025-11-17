@@ -1,13 +1,12 @@
-// FIX: import useMemo from React
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import type { FrameConfig, LegoPart, TextConfig } from '../types';
-import { FRAME_OPTIONS, LEGO_PARTS } from '../constants';
+import type { FrameConfig, LegoPart, TextConfig, AllProducts, FrameOption } from '../types';
 
 type Transform = {
   x: number;
   y: number;
   rotation: number;
   scale: number;
+  width?: number;
 }
 
 interface FramePreviewProps {
@@ -19,6 +18,7 @@ interface FramePreviewProps {
   isInteractive?: boolean;
   selectedItemId: string | null;
   setSelectedItemId: (id: string | null) => void;
+  allProducts: AllProducts | null;
 }
 
 const LegoCharacter: React.FC<{ character: FrameConfig['characters'][0]; scale: number }> = ({ character, scale }) => {
@@ -130,48 +130,52 @@ const EditableText: React.FC<{
         setEditedContent(text.content);
         onBeginEditing();
     }
+    
+    const containerStyle: React.CSSProperties = {
+        width: text.width ? `${text.width}px` : 'auto',
+        minWidth: '50px',
+        wordWrap: 'break-word',
+    };
 
     const textStyle: React.CSSProperties = {
         fontFamily: getFontFamily(text.font),
-        fontSize: `${text.size * (scale / 20)}px`, // Kept division for sensible default sizes
+        fontSize: `${text.size * (scale / 15)}px`,
         color: text.color,
         whiteSpace: 'pre-wrap',
         textAlign: text.textAlign || 'center',
         padding: '10px',
-        textShadow: '0 0 5px white, 0 0 5px white',
+        textShadow: text.background ? '0 0 5px white, 0 0 5px white, 0 0 5px white' : 'none',
         ...(text.background && { backgroundColor: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(2px)', borderRadius: '5px' })
     };
 
-    if (isEditing) {
-        return (
-            <textarea
-                ref={textareaRef}
-                value={editedContent}
-                onChange={(e) => setEditedContent(e.target.value)}
-                onBlur={handleBlur}
-                onKeyDown={handleKeyDown}
-                style={{
-                    ...textStyle,
-                    width: '100%',
-                    height: 'auto',
-                    minWidth: '150px',
-                    border: 'none',
-                    outline: 'none',
-                    resize: 'none',
-                    background: 'rgba(255, 255, 255, 0.95)',
-                    boxShadow: '0 0 0 2px #efa3b5',
-                    margin: 0,
-                    cursor: 'text',
-                }}
-            />
-        );
-    }
-
     return (
-        <div style={{minWidth: '50px'}} onDoubleClick={handleDoubleClick}>
-            <p style={textStyle} >
-                {text.content}
-            </p>
+        <div style={containerStyle} onDoubleClick={handleDoubleClick}>
+            {isEditing ? (
+                 <textarea
+                    ref={textareaRef}
+                    value={editedContent}
+                    onChange={(e) => setEditedContent(e.target.value)}
+                    onBlur={handleBlur}
+                    onKeyDown={handleKeyDown}
+                    style={{
+                        ...textStyle,
+                        width: '100%',
+                        height: 'auto',
+                        minWidth: '150px',
+                        border: 'none',
+                        outline: 'none',
+                        resize: 'none',
+                        background: 'rgba(255, 255, 255, 0.95)',
+                        boxShadow: '0 0 0 2px #efa3b5',
+                        margin: 0,
+                        cursor: 'text',
+                    }}
+                />
+            ) : (
+                <p style={textStyle} >
+                    {text.content}
+                </p>
+            )}
         </div>
     );
 };
@@ -186,9 +190,10 @@ const Transformable: React.FC<{
     isSelected: boolean;
     onSelect: (id: string) => void;
     isResizable?: boolean;
+    isWidthResizable?: boolean;
     isRotatable?: boolean;
     isDraggable?: boolean;
-}> = ({ children, id, initialTransform, onTransform, parentRef, isSelected, onSelect, isResizable = true, isRotatable = true, isDraggable = true }) => {
+}> = ({ children, id, initialTransform, onTransform, parentRef, isSelected, onSelect, isResizable = true, isWidthResizable = false, isRotatable = true, isDraggable = true }) => {
     
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
         if (!isDraggable) return;
@@ -236,7 +241,7 @@ const Transformable: React.FC<{
         const startRotation = initialTransform.rotation;
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
-            const currentAngle = Math.atan2(moveEvent.clientY - centerY, e.clientX - centerX) * 180 / Math.PI;
+            const currentAngle = Math.atan2(moveEvent.clientY - centerY, moveEvent.clientX - centerX) * 180 / Math.PI;
             const deltaAngle = currentAngle - startAngle;
             onTransform(id, { ...initialTransform, rotation: startRotation + deltaAngle });
         };
@@ -248,14 +253,10 @@ const Transformable: React.FC<{
         window.addEventListener('mouseup', handleMouseUp);
     };
 
-     const handleResize = (e: React.MouseEvent<HTMLDivElement>) => {
+     const handleScale = (e: React.MouseEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
-        const parentRect = parentRef.current?.getBoundingClientRect();
-        if (!parentRect) return;
-
         const startX = e.clientX;
-        const startY = e.clientY;
         const startScale = initialTransform.scale;
         
         const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -263,6 +264,47 @@ const Transformable: React.FC<{
              const scaleChange = dx / 100; // Adjust sensitivity
              onTransform(id, { ...initialTransform, scale: Math.max(0.2, startScale + scaleChange) });
         };
+        const handleMouseUp = () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+    };
+    
+    const handleWidthResize = (e: React.MouseEvent<HTMLDivElement>, side: 'left' | 'right') => {
+        e.preventDefault();
+        e.stopPropagation();
+        const parentRect = parentRef.current?.getBoundingClientRect();
+        if (!parentRect) return;
+
+        const startX = e.clientX;
+        const { x: initialXPercent, scale, width: initialWidth = 200 } = initialTransform;
+
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            const dxScreen = moveEvent.clientX - startX;
+            const dxElement = dxScreen / scale;
+
+            let newWidth;
+            let centerShiftElement;
+
+            if (side === 'right') {
+                newWidth = initialWidth + dxElement;
+                centerShiftElement = dxElement / 2;
+            } else { // side === 'left'
+                newWidth = initialWidth - dxElement;
+                centerShiftElement = dxElement / 2;
+            }
+
+            if (newWidth < 50) return;
+
+            const centerShiftScreen = centerShiftElement * scale;
+            const xShiftPercent = (centerShiftScreen / parentRect.width) * 100;
+            const newXPercent = initialXPercent + xShiftPercent;
+
+            onTransform(id, { ...initialTransform, width: newWidth, x: newXPercent });
+        };
+
         const handleMouseUp = () => {
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
@@ -282,14 +324,20 @@ const Transformable: React.FC<{
                 touchAction: 'none',
                 cursor: isDraggable ? (isSelected ? 'move' : 'pointer') : 'default',
                 outline: isSelected && isDraggable ? '2px dashed #efa3b5' : 'none',
-                outlineOffset: '5px'
+                outlineOffset: '8px'
             }}
         >
             {children}
             {isSelected && isDraggable && (
                 <>
                     {isRotatable && <div onMouseDown={handleRotate} className="transform-handle absolute -top-6 left-1/2 -translate-x-1/2 cursor-alias bg-luvin-pink text-white rounded-full h-4 w-4" title="Rotate"></div>}
-                    {isResizable && <div onMouseDown={handleResize} className="transform-handle absolute -bottom-2 -right-2 cursor-nwse-resize bg-luvin-pink w-3 h-3 rounded-full border-2 border-white" title="Resize"></div>}
+                    {isResizable && <div onMouseDown={handleScale} className="transform-handle absolute -bottom-2 -right-2 cursor-nwse-resize bg-luvin-pink w-3 h-3 rounded-full border-2 border-white" title="Resize"></div>}
+                    {isWidthResizable && (
+                        <>
+                            <div onMouseDown={(e) => handleWidthResize(e, 'left')} className="transform-handle absolute top-1/2 -left-2.5 -translate-y-1/2 w-3 h-3 bg-luvin-pink rounded-full cursor-ew-resize border-2 border-white" title="Resize Width" />
+                            <div onMouseDown={(e) => handleWidthResize(e, 'right')} className="transform-handle absolute top-1/2 -right-2.5 -translate-y-1/2 w-3 h-3 bg-luvin-pink rounded-full cursor-ew-resize border-2 border-white" title="Resize Width" />
+                        </>
+                    )}
                 </>
             )}
         </div>
@@ -297,42 +345,47 @@ const Transformable: React.FC<{
 };
 
 
-const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ config, containerWidth = 400, onItemTransform, onTextUpdate, className, isInteractive = true, selectedItemId, setSelectedItemId }, ref) => {
-  const frameOption = FRAME_OPTIONS.find(f => f.id === config.frameId) || FRAME_OPTIONS[0];
+const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ config, containerWidth = 400, onItemTransform, onTextUpdate, className, isInteractive = true, selectedItemId, setSelectedItemId, allProducts }, ref) => {
+  const frameOption = allProducts?.frames.find(f => f.id === config.frameId) || allProducts?.frames[0];
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [isCurrentlyEditingText, setIsCurrentlyEditingText] = useState(false);
 
-  // --- START OF FIX: Proportional Scaling Logic ---
-  // 1. Find the largest dimension (width or height) across all available frames.
+  if (!allProducts || !frameOption) {
+      return (
+        <div className={`flex items-center justify-center ${className}`} style={{ width: containerWidth, height: containerWidth }}>
+            <div className="text-gray-500">Loading Preview...</div>
+        </div>
+      );
+  }
+
   const maxDimensionCm = useMemo(() => 
-    Math.max(...FRAME_OPTIONS.map(f => Math.max(f.frameWidthCm, f.frameHeightCm)))
-  , []);
+    Math.max(...allProducts.frames.map(f => Math.max(f.frameWidthCm, f.frameHeightCm)))
+  , [allProducts.frames]);
 
-  // 2. Create a consistent scaling factor (pixels per cm) based on the container width and the max dimension.
   const pxPerCm = containerWidth / maxDimensionCm;
-
-  // 3. Calculate the total dimensions of the current frame in pixels.
   const frameWidth = frameOption.frameWidthCm * pxPerCm;
   const frameHeight = frameOption.frameHeightCm * pxPerCm;
-
-  // 4. Calculate the background dimensions in pixels.
   const backgroundWidth = frameOption.backgroundWidthCm * pxPerCm;
   const backgroundHeight = frameOption.backgroundHeightCm * pxPerCm;
-  // --- END OF FIX ---
 
   const backgroundStyle: React.CSSProperties =
     config.background.type === 'color'
       ? { backgroundColor: config.background.value }
       : { backgroundImage: `url(${config.background.value})`, backgroundSize: 'cover', backgroundPosition: 'center' };
   
-  const allParts: Record<string, LegoPart> = {
-      ...Object.values(LEGO_PARTS).flat().reduce((acc, part) => ({ ...acc, [part.id]: part }), {})
-  };
+  const allParts: Record<string, LegoPart> = useMemo(() =>
+    allProducts
+      ? Object.values(allProducts.lego_parts)
+          .flat()
+          .reduce((acc: Record<string, LegoPart>, part) => {
+            acc[part.id] = part;
+            return acc;
+          }, {})
+      : {},
+  [allProducts]);
 
   return (
-    // This outer div now correctly scales the entire component proportionally.
     <div ref={ref} className={`flex items-center justify-center ${className}`} style={{ width: frameWidth, height: frameHeight }}>
-        {/* This div represents the white frame itself. */}
         <div 
           className="relative bg-white"
           style={{
@@ -341,7 +394,6 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
             boxShadow: `0 4px 12px #d8d8d8`,
           }}
         >
-            {/* This inner div is the background area where items are placed. */}
             <div
                 ref={previewContainerRef}
                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden"
@@ -357,8 +409,6 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                     }
                 }}
             >
-                {/* FIX: Reordered elements for correct visual stacking (z-index). */}
-                {/* 1. Characters render first (at the bottom). */}
                 {config.characters.map(char => {
                     const id = `character-${char.id}`;
                     return (
@@ -367,12 +417,11 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                             parentRef={previewContainerRef} isSelected={selectedItemId === id} onSelect={setSelectedItemId}
                             isResizable={false} isRotatable={false} isDraggable={isInteractive}
                         >
-                           <LegoCharacter character={char} scale={pxPerCm} /> {/* Use the new consistent scale */}
+                           <LegoCharacter character={char} scale={pxPerCm} />
                         </Transformable>
                     );
                 })}
 
-                {/* 2. Draggable items (accessories, pets) render on top of characters. */}
                 {config.draggableItems.map(item => {
                     const isCharm = item.type === 'charm';
                     const part = !isCharm ? allParts[item.partId] : null;
@@ -388,7 +437,7 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                         <Transformable 
                             key={id} id={id} initialTransform={item} onTransform={onItemTransform} 
                             parentRef={previewContainerRef} isSelected={selectedItemId === id} onSelect={setSelectedItemId}
-                            isResizable={false} 
+                            isResizable={true} 
                             isRotatable={isInteractive} 
                             isDraggable={isInteractive}
                         >
@@ -397,8 +446,8 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                               alt={name} 
                               className="pointer-events-none"
                               style={{
-                                  width: widthCm * pxPerCm, // Use the new consistent scale
-                                  height: heightCm * pxPerCm, // Use the new consistent scale
+                                  width: widthCm * pxPerCm,
+                                  height: heightCm * pxPerCm,
                                   objectFit: 'contain'
                               }}
                             />
@@ -406,19 +455,21 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                     );
                 })}
                 
-                {/* 3. Text renders last (on top of everything). */}
                 {config.texts.map(text => {
                     const id = `text-${text.id}`;
+                    const transformProps = {x: text.x, y: text.y, rotation: text.rotation, scale: text.scale, width: text.width};
                     return (
                         <Transformable 
-                            key={id} id={id} initialTransform={{x: text.x, y: text.y, rotation: text.rotation, scale: text.scale}} 
+                            key={id} id={id} initialTransform={transformProps} 
                             onTransform={onItemTransform} parentRef={previewContainerRef} 
                             isSelected={selectedItemId === id} onSelect={setSelectedItemId}
                             isDraggable={isInteractive && !isCurrentlyEditingText}
+                            isResizable={true}
+                            isWidthResizable={true}
                         >
                            <EditableText
                              text={text}
-                             scale={pxPerCm} // Use the new consistent scale
+                             scale={pxPerCm}
                              onUpdate={(updates) => onTextUpdate(text.id, updates)}
                              onBeginEditing={() => setIsCurrentlyEditingText(true)}
                              onEndEditing={() => setIsCurrentlyEditingText(false)}

@@ -1,44 +1,45 @@
-// FIX: Export API_BASE_URL for use in other components.
-export const API_BASE_URL = '';
+
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-// FIX: Update type imports to include AllProducts for admin functionality.
-import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, OrderDetails, StoredOrder, OrderStatus, AllProducts, AllBackgrounds } from './types.ts';
+import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, CheckoutFormDetails as OrderDetails, OrderStatus, AllProducts, AllBackgrounds, FrameOption, BackgroundOption, Order } from './types';
 import { 
-    FRAME_OPTIONS, 
-    LEGO_PARTS, 
     INITIAL_FRAME_CONFIG, 
     COLLECTION_TEMPLATES, 
     FEEDBACK_ITEMS, 
-    PRESET_BACKGROUNDS_SQUARE, 
-    PRESET_BACKGROUNDS_RECTANGLE, 
     PRODUCT_HIGHLIGHTS,
     GENERAL_ASSETS,
-} from './constants.tsx';
-import FramePreview from './components/FramePreview.tsx';
-// FIX: Import admin components
-import LoginPage from './components/LoginPage.tsx';
-import AdminLayout from './components/AdminLayout.tsx';
-import AdminPage from './components/AdminPage.tsx';
-import DashboardPage from './components/DashboardPage.tsx';
-import ProductManagementPage from './components/ProductManagementPage.tsx';
-import AdminBackgroundsPage from './components/AdminBackgroundsPage.tsx';
-// FIX: Import useAuth to handle authentication state
-import { useAuth } from './AuthContext.tsx';
-
+} from './constants';
+import FramePreview from './components/FramePreview';
+import LoginPage from './components/LoginPage';
+import AdminLayout from './components/AdminLayout';
+import AdminPage from './components/AdminPage';
+import DashboardPage from './components/DashboardPage';
+import ProductManagementPage from './components/ProductManagementPage';
+import AdminBackgroundsPage from './components/AdminBackgroundsPage';
+import { supabase } from './supabase';
+import { useAuth } from './AuthContext';
 
 declare var html2canvas: any;
 
 const formatCurrency = (amount: number) => {
-  if (amount === 0) return 'Miễn phí';
+  if (!amount || amount === 0) return 'Miễn phí';
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 };
 
 const CHARACTER_BASE_PRICE = 10000;
 
-const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>) => {
+const calculatePrice = (config: FrameConfig, allProducts: AllProducts | null) => {
+    if (!allProducts) return { totalPrice: 0, priceBreakdown: [] };
+
+    const allParts = Object.values(allProducts.lego_parts).flat().reduce((acc: Record<string, LegoPart>, part) => {
+        acc[part.id] = part;
+        return acc;
+    }, {});
+
     const breakdown: {label: string, value: number}[] = [];
-    const frame = FRAME_OPTIONS.find(f => f.id === config.frameId) || FRAME_OPTIONS[0];
+    const frame = allProducts.frames.find(f => f.id === config.frameId);
+    if (!frame) return { totalPrice: 0, priceBreakdown: [] };
+
     let total = frame.price;
     breakdown.push({ label: `Khung ${frame.name}`, value: frame.price });
 
@@ -73,8 +74,8 @@ const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>)
     return { totalPrice: total, priceBreakdown: breakdown };
 };
 
-
 type Transform = { x: number; y: number; rotation: number; scale: number; width?: number };
+
 
 const StepIndicator: React.FC<{ currentStep: number; setStep: (step: number) => void }> = ({ currentStep, setStep }) => {
   const steps = ['Thông tin SP', 'Nền & Chữ', 'Thiết kế', 'Mua hàng'];
@@ -104,14 +105,14 @@ const StepIndicator: React.FC<{ currentStep: number; setStep: (step: number) => 
   );
 };
 
-const Step1Frame: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<React.SetStateAction<FrameConfig>> }> = ({ config, setConfig }) => {
-  const selectedFrame = FRAME_OPTIONS.find(f => f.id === config.frameId) || FRAME_OPTIONS[0];
+const Step1Frame: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<React.SetStateAction<FrameConfig>>; frameOptions: FrameOption[] }> = ({ config, setConfig, frameOptions }) => {
+  const selectedFrame = frameOptions.find(f => f.id === config.frameId) || frameOptions[0];
   return (
     <div className="space-y-4">
       <div className="p-4 border border-gray-200 rounded-lg">
         <h4 className="font-bold text-gray-800 mb-3">CHỌN KÍCH THƯỚC</h4>
         <div className="grid grid-cols-3 gap-3">
-          {FRAME_OPTIONS.map(frame => (
+          {frameOptions.map(frame => (
             <button
               key={frame.id}
               onClick={() => setConfig(prev => ({ ...prev, frameId: frame.id }))}
@@ -141,6 +142,7 @@ const Step1Frame: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<Reac
   );
 };
 
+
 const PresetBackgroundButton: React.FC<{
     bg: { name: string; url: string };
     isSelected: boolean;
@@ -148,35 +150,13 @@ const PresetBackgroundButton: React.FC<{
 }> = ({ bg, isSelected, onClick }) => {
     let line1 = bg.name;
     let line2 = '';
-
     const match = bg.name.match(/^(.*?)(\s+\d+)$/);
-    
-    if (match) {
-        line1 = match[1]; 
-        line2 = match[2].trim();
-    } else {
-        const parts = bg.name.split(' ');
-        if (parts.length > 1) {
-            line1 = parts[0];
-            line2 = parts.slice(1).join(' ');
-        }
-    }
-
+    if (match) { line1 = match[1]; line2 = match[2].trim(); } 
+    else { const parts = bg.name.split(' '); if (parts.length > 1) { line1 = parts[0]; line2 = parts.slice(1).join(' '); } }
     return (
-        <button
-            onClick={onClick}
-            className={`border-2 rounded-xl p-1.5 flex flex-col items-center justify-start gap-1.5 transition-all text-center w-full ${
-                isSelected
-                    ? 'border-luvin-pink bg-pink-50'
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-            }`}
-        >
+        <button onClick={onClick} className={`border-2 rounded-xl p-1.5 flex flex-col items-center justify-start gap-1.5 transition-all text-center w-full ${ isSelected ? 'border-luvin-pink bg-pink-50' : 'border-gray-200 bg-white hover:border-gray-300' }`} >
             <div className="w-full aspect-[4/5] rounded-md bg-gray-100 overflow-hidden flex items-center justify-center">
-                <img
-                    src={bg.url}
-                    alt={bg.name}
-                    className="w-full h-full object-cover"
-                />
+                <img src={bg.url} alt={bg.name} className="w-full h-full object-cover" />
             </div>
             <div className="flex flex-col justify-center items-center flex-shrink-0 h-9 leading-tight">
                 <span className="text-[11px] font-semibold text-gray-700">{line1}</span>
@@ -193,56 +173,52 @@ const Step2BackgroundAndDecorations: React.FC<{
   addText: () => void;
   addCharm: (dataUrl: string) => void;
   allBackgrounds: AllBackgrounds | null;
-}> = ({ config, setConfig, addText, addCharm, allBackgrounds }) => {
+  handleUserImageUpload: (file: File, folder: 'backgrounds' | 'charms') => Promise<string | null>;
+}> = ({ config, setConfig, addText, addCharm, allBackgrounds, handleUserImageUpload }) => {
   const bgUploadRef = useRef<HTMLInputElement>(null);
   const charmUploadRef = useRef<HTMLInputElement>(null);
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
+  const [isUploading, setIsUploading] = useState(false);
 
   const availableBackgrounds = useMemo(() => {
     if (!allBackgrounds) return [];
-    const isSquare = config.frameId === 'sm' || config.frameId === 'lg';
+    const frameId = config.frameId || 'sm';
+    const isSquare = frameId === 'sm' || frameId === 'lg';
     return (isSquare ? allBackgrounds.square : allBackgrounds.rectangle).filter(bg => bg.isVisible);
   }, [config.frameId, allBackgrounds]);
 
-  const categories = useMemo(() => {
-    return ['Tất cả', ...Array.from(new Set(availableBackgrounds.map(bg => bg.category)))];
-  }, [availableBackgrounds]);
+  const categories = useMemo(() => ['Tất cả', ...Array.from(new Set(availableBackgrounds.map(bg => bg.category)))], [availableBackgrounds]);
 
   const filteredBackgrounds = useMemo(() => {
-    if (selectedCategory === 'Tất cả') {
-      return availableBackgrounds;
-    }
+    if (selectedCategory === 'Tất cả') return availableBackgrounds;
     return availableBackgrounds.filter(bg => bg.category === selectedCategory);
   }, [selectedCategory, availableBackgrounds]);
 
   useEffect(() => {
-    // Reset category if it's no longer available for the selected frame size
-    if (!categories.includes(selectedCategory)) {
-        setSelectedCategory('Tất cả');
-    }
+    if (!categories.includes(selectedCategory)) setSelectedCategory('Tất cả');
   }, [categories, selectedCategory]);
 
-  const handleBgFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const fileReader = new FileReader();
-      fileReader.onload = (event) => {
-        if (event.target && typeof event.target.result === 'string') {
-          setConfig((prev) => ({ ...prev, background: { type: 'upload', value: event.target.result as string } }));
+  const handleBgFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+        setIsUploading(true);
+        const publicUrl = await handleUserImageUpload(file, 'backgrounds');
+        setIsUploading(false);
+        if (publicUrl) {
+            setConfig((prev) => ({ ...prev, background: { type: 'upload', value: publicUrl } }));
         }
-      };
-      fileReader.readAsDataURL(e.target.files[0]);
+         if (bgUploadRef.current) bgUploadRef.current.value = "";
     }
   };
 
-  const handleCharmFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const fileReader = new FileReader();
-      fileReader.onload = (event) => {
-        if (event.target && typeof event.target.result === 'string') {
-          addCharm(event.target.result as string);
-        }
-      };
-      fileReader.readAsDataURL(e.target.files[0]);
+  const handleCharmFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+        setIsUploading(true);
+        const publicUrl = await handleUserImageUpload(file, 'charms');
+        setIsUploading(false);
+        if (publicUrl) addCharm(publicUrl);
+        if (charmUploadRef.current) charmUploadRef.current.value = "";
     }
   };
 
@@ -250,59 +226,25 @@ const Step2BackgroundAndDecorations: React.FC<{
     <div className="space-y-4">
       <div className="p-4 border border-gray-200 rounded-lg">
         <h4 className="font-bold text-gray-800 mb-3">A. CHỌN MẪU NỀN CÓ SẴN</h4>
-        
         <div className="mb-4 pb-3 border-b border-gray-200">
             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-                {categories.map(category => (
-                    <button
-                        key={category}
-                        onClick={() => setSelectedCategory(category)}
-                        className={`flex-shrink-0 px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${
-                            selectedCategory === category
-                                ? 'bg-luvin-pink text-white'
-                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                        }`}
-                    >
-                        {category}
-                    </button>
-                ))}
+                {categories.map(category => ( <button key={category} onClick={() => setSelectedCategory(category)} className={`flex-shrink-0 px-3 py-1.5 text-xs rounded-full font-medium transition-colors ${ selectedCategory === category ? 'bg-luvin-pink text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }`} > {category} </button> ))}
             </div>
         </div>
-
         <div className="grid grid-cols-3 gap-2 min-h-[150px]">
-          {filteredBackgrounds.length > 0 ? (
-            filteredBackgrounds.map((bg) => (
-              <PresetBackgroundButton
-                key={bg.name}
-                bg={bg}
-                isSelected={config.background.value === bg.url}
-                onClick={() => setConfig((prev) => ({ ...prev, background: { type: 'image', value: bg.url } }))}
-              />
-            ))
-          ) : (
-            <p className="col-span-3 text-center text-sm text-gray-500 py-10">
-              Không có mẫu nào phù hợp với lựa chọn của bạn.
-            </p>
-          )}
+          {filteredBackgrounds.length > 0 ? ( filteredBackgrounds.map((bg) => ( <PresetBackgroundButton key={bg.id} bg={bg} isSelected={config.background.value === bg.url} onClick={() => setConfig((prev) => ({ ...prev, background: { type: 'image', value: bg.url } }))} /> )) ) : ( <p className="col-span-3 text-center text-sm text-gray-500 py-10"> Không có mẫu nào phù hợp. </p> )}
         </div>
       </div>
       <div className="p-4 border border-gray-200 rounded-lg">
         <h4 className="font-bold text-gray-800 mb-3">B. HOẶC TẢI ẢNH CỦA BẠN</h4>
-        <button onClick={() => bgUploadRef.current?.click()} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300">
-          Tải ảnh nền
-        </button>
+        <button onClick={() => bgUploadRef.current?.click()} disabled={isUploading} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-wait" > {isUploading ? 'Đang tải lên...' : 'Tải ảnh nền'} </button>
       </div>
-
       <div className="p-4 border border-gray-200 rounded-lg">
         <h4 className="font-bold text-gray-800 mb-2">C. THÊM CHỮ & TRANG TRÍ</h4>
         <p className="text-sm text-gray-600 mb-3">Chỉnh sửa trực tiếp trên khung xem trước.</p>
         <div className="flex gap-2">
-            <button onClick={addText} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300">
-              + Thêm chữ mới
-            </button>
-            <button onClick={() => charmUploadRef.current?.click()} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300">
-              Tải ảnh nhỏ
-            </button>
+            <button onClick={addText} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300"> + Thêm chữ mới </button>
+            <button onClick={() => charmUploadRef.current?.click()} disabled={isUploading} className="w-full font-semibold bg-gray-200 text-gray-800 py-2.5 px-3 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-wait" > {isUploading ? 'Đang tải...' : 'Tải ảnh nhỏ'} </button>
         </div>
       </div>
       <input type="file" ref={bgUploadRef} accept="image/*" onChange={handleBgFileUpload} className="hidden" />
@@ -336,12 +278,13 @@ const PartButton: React.FC<{
     );
 };
 
-
-const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<React.SetStateAction<FrameConfig>> }> = ({ config, setConfig }) => {
+const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<React.SetStateAction<FrameConfig>>; allProducts: AllProducts | null }> = ({ config, setConfig, allProducts }) => {
     const [activeCharId, setActiveCharId] = useState<number | null>(config.characters[0]?.id || null);
     const [activePartType, setActivePartType] = useState<'shirt' | 'pants' | 'face' | 'hair' | 'hat'>('shirt');
     const activeCharacter = config.characters.find(c => c.id === activeCharId);
     const [printDialogCharId, setPrintDialogCharId] = useState<number | null>(null);
+
+    const LEGO_PARTS = allProducts?.lego_parts;
 
      useEffect(() => {
         if (!config.characters.find(c => c.id === activeCharId)) {
@@ -350,6 +293,7 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
      }, [config.characters, activeCharId]);
 
     const handleAddChar = () => {
+        if (!LEGO_PARTS) return;
         const newId = Date.now();
         const newCharacter: LegoCharacterConfig = {
             id: newId, 
@@ -434,7 +378,9 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
         { key: 'hat', label: 'Mũ' },
     ];
 
-    const currentPartList = LEGO_PARTS[activePartType] || [];
+    if (!LEGO_PARTS) return <div>Đang tải chi tiết...</div>;
+
+    const currentPartList = LEGO_PARTS[activePartType]?.filter(p => p.isVisible) || [];
 
     return (
         <div className="space-y-4">
@@ -544,7 +490,7 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
             <div className="p-4 border border-gray-200 rounded-lg">
                 <h4 className="font-bold text-gray-800 mb-3">THÊM PHỤ KIỆN</h4>
                 <div className="grid grid-cols-4 gap-2">
-                    {LEGO_PARTS.accessory.map(part => (
+                    {LEGO_PARTS.accessory.filter(p => p.isVisible).map(part => (
                         <PartButton key={part.id} part={part} isSelected={false} onClick={() => addDraggableItem(part)} />
                     ))}
                 </div>
@@ -553,7 +499,7 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
             <div className="p-4 border border-gray-200 rounded-lg">
                 <h4 className="font-bold text-gray-800 mb-3">THÊM THÚ CƯNG</h4>
                 <div className="grid grid-cols-4 gap-2">
-                    {LEGO_PARTS.pet.map(part => (
+                    {LEGO_PARTS.pet.filter(p => p.isVisible).map(part => (
                         <PartButton key={part.id} part={part} isSelected={false} onClick={() => addDraggableItem(part)} />
                     ))}
                 </div>
@@ -647,8 +593,6 @@ const Header: React.FC<{ navigateTo: (page: Page) => void; cartCount: number; on
           </div>
         </nav>
       </header>
-
-      {/* FIX: Mobile menu is now outside the sticky header to prevent stacking context issues */}
       <div 
         className={`fixed inset-0 z-50 md:hidden transition-all duration-300 ${isMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         aria-hidden={!isMenuOpen}
@@ -883,12 +827,12 @@ const TextEditor: React.FC<{
                 <div>
                     <label className="text-sm font-bold text-gray-600 block mb-1">Cỡ chữ</label>
                     <input 
-                      type="number" 
-                      min="10" 
-                      max="120" 
+                      type="range" 
+                      min="8" 
+                      max="100" 
                       value={activeText.size} 
                       onChange={e => updateActiveText({ size: parseInt(e.target.value)})} 
-                      className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white"
+                      className="w-full"
                     />
                 </div>
                 <div className="flex items-center justify-between gap-2">
@@ -914,8 +858,10 @@ const BuilderPage: React.FC<{
     navigateTo: (p:Page) => void; 
     onAddToCart: (config: FrameConfig) => void; 
     showToast: (message: string, type: 'success' | 'error') => void;
+    allProducts: AllProducts | null;
     allBackgrounds: AllBackgrounds | null;
-}> = ({ config, setConfig, navigateTo, onAddToCart, showToast, allBackgrounds }) => {
+    handleUserImageUpload: (file: File, folder: 'backgrounds' | 'charms') => Promise<string | null>;
+}> = ({ config, setConfig, navigateTo, onAddToCart, showToast, allProducts, allBackgrounds, handleUserImageUpload }) => {
   const [step, setStep] = useState(1);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const previewContainerParentRef = useRef<HTMLDivElement>(null);
@@ -931,18 +877,15 @@ const BuilderPage: React.FC<{
       const currentScrollY = window.scrollY;
       const isAtBottom = window.innerHeight + currentScrollY >= document.documentElement.scrollHeight - 20;
       
-      // Hide bar when scrolling down, unless at the very bottom
       if (currentScrollY > scrollYRef.current && currentScrollY > 150 && !isAtBottom) {
         setIsBottomBarVisible(false);
       } else {
-        // Show bar when scrolling up, at the top, or at the bottom
         setIsBottomBarVisible(true);
       }
       scrollYRef.current = currentScrollY;
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
-
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
@@ -965,14 +908,7 @@ const BuilderPage: React.FC<{
     };
   }, []);
   
-  // FIX: Correctly type and memoize the allParts object.
-  const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc: Record<string, LegoPart>, part: LegoPart) => {
-    acc[part.id] = part;
-    return acc;
-  }, {}), []);
-
-
-  const { totalPrice, priceBreakdown } = useMemo(() => calculatePrice(config, allParts), [config, allParts]);
+  const { totalPrice, priceBreakdown } = useMemo(() => calculatePrice(config, allProducts), [config, allProducts]);
   
   const selectedText = useMemo(() => {
     if (selectedItemId?.startsWith('text-')) {
@@ -1001,9 +937,7 @@ const BuilderPage: React.FC<{
   const handleItemDelete = useCallback((id: string) => {
     const [type, ...rest] = id.split('-');
     const rawId = rest.join('-');
-    
     setSelectedItemId(null);
-
     setConfig(prev => {
         if (type === 'text') {
             const idToDelete = parseInt(rawId);
@@ -1048,30 +982,24 @@ const BuilderPage: React.FC<{
   const captureFrameAsImage = async (): Promise<string> => {
     return new Promise((resolve) => {
       const originalSelectedId = selectedItemId;
-      setSelectedItemId(null); // Deselect to hide controls
-
+      setSelectedItemId(null);
       setTimeout(async () => {
         const element = frameCaptureRef.current;
         if (element && typeof html2canvas !== 'undefined') {
           try {
-            const canvas = await html2canvas(element, {
-              backgroundColor: null, // Transparent background
-              logging: false,
-              useCORS: true,
-              ignoreElements: (el) => el.classList.contains('transform-handle'),
-            });
+            const canvas = await html2canvas(element, { backgroundColor: null, logging: false, useCORS: true, ignoreElements: (el) => el.classList.contains('transform-handle'), });
             resolve(canvas.toDataURL('image/png'));
           } catch (error) {
             console.error('Error capturing frame:', error);
             resolve('');
           } finally {
-            setSelectedItemId(originalSelectedId); // Reselect item
+            setSelectedItemId(originalSelectedId);
           }
         } else {
           resolve('');
-          setSelectedItemId(originalSelectedId); // Reselect item
+          setSelectedItemId(originalSelectedId);
         }
-      }, 50); // Small delay to allow DOM to update
+      }, 50);
     });
   };
 
@@ -1098,12 +1026,17 @@ const BuilderPage: React.FC<{
     }
   };
 
+  if (!allProducts) {
+      return <div className="p-8 text-center">Đang tải sản phẩm...</div>
+  }
+
   const renderStepContent = () => {
+    const frameOptions = allProducts.frames.filter(f => f.isVisible);
     switch (step) {
-      case 1: return <Step1Frame config={config} setConfig={setConfig} />;
-      case 2: return <Step2BackgroundAndDecorations config={config} setConfig={setConfig} addText={addText} addCharm={addCharm} allBackgrounds={allBackgrounds} />;
-      case 3: return <Step3Characters config={config} setConfig={setConfig} />;
-      case 4: return <Step4Summary totalPrice={totalPrice} priceBreakdown={priceBreakdown} frameName={FRAME_OPTIONS.find(f => f.id === config.frameId)?.name || ''} charCount={config.characters.length} onAddToCart={handleAddToCart} onBuyNow={handleBuyNow} isSaving={isSaving} />;
+      case 1: return <Step1Frame config={config} setConfig={setConfig} frameOptions={frameOptions} />;
+      case 2: return <Step2BackgroundAndDecorations config={config} setConfig={setConfig} addText={addText} addCharm={addCharm} allBackgrounds={allBackgrounds} handleUserImageUpload={handleUserImageUpload} />;
+      case 3: return <Step3Characters config={config} setConfig={setConfig} allProducts={allProducts} />;
+      case 4: return <Step4Summary totalPrice={totalPrice} priceBreakdown={priceBreakdown} frameName={frameOptions.find(f => f.id === config.frameId)?.name || ''} charCount={config.characters.length} onAddToCart={handleAddToCart} onBuyNow={handleBuyNow} isSaving={isSaving} />;
       default: return null;
     }
   };
@@ -1124,12 +1057,13 @@ const BuilderPage: React.FC<{
                     <FramePreview 
                         ref={frameCaptureRef}
                         config={config} 
-                        containerWidth={previewWidth - 32} // Account for padding
+                        containerWidth={previewWidth - 32}
                         onItemTransform={handleItemTransform} 
                         onTextUpdate={handleTextUpdate}
                         className="w-full h-full"
                         selectedItemId={selectedItemId}
                         setSelectedItemId={setSelectedItemId}
+                        allProducts={allProducts}
                     />
                 </div>
                 <div className="h-10 mt-4"></div>
@@ -1206,13 +1140,41 @@ const BuilderPage: React.FC<{
   );
 };
 
-const CollectionPage: React.FC<{ navigateTo: (page: Page) => void, setConfig: React.Dispatch<React.SetStateAction<FrameConfig>> }> = ({ navigateTo, setConfig }) => {
-    const handleCustomize = (config: FrameConfig) => { setConfig(config); navigateTo('builder'); };
+const CollectionPage: React.FC<{ 
+    navigateTo: (page: Page) => void, 
+    setConfig: React.Dispatch<React.SetStateAction<FrameConfig>>,
+    allProducts: AllProducts | null 
+}> = ({ navigateTo, setConfig, allProducts }) => {
+
+    const allParts = useMemo(() => {
+        if (!allProducts) return {};
+        return Object.values(allProducts.lego_parts).flat().reduce((acc, part) => ({...acc, [part.id]: part }), {} as Record<string, LegoPart>);
+    }, [allProducts]);
+
+    const handleCustomize = (templateConfig: FrameConfig) => {
+        if (!allProducts) return; 
+
+        const newConfig = JSON.parse(JSON.stringify(templateConfig));
+
+        newConfig.characters = newConfig.characters.map((char: LegoCharacterConfig) => {
+            const hydratedChar = { ...char };
+            if (char.shirt?.id && allParts[char.shirt.id]) hydratedChar.shirt = allParts[char.shirt.id];
+            if (char.pants?.id && allParts[char.pants.id]) hydratedChar.pants = allParts[char.pants.id];
+            if (char.face?.id && allParts[char.face.id]) hydratedChar.face = allParts[char.face.id];
+            if (char.hair?.id && allParts[char.hair.id]) hydratedChar.hair = allParts[char.hair.id];
+            if (char.hat?.id && allParts[char.hat.id]) hydratedChar.hat = allParts[char.hat.id];
+            return hydratedChar;
+        });
+        
+        setConfig(newConfig);
+        navigateTo('builder');
+    };
+
     return ( <div className="container mx-auto px-6 py-8"><h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Bộ sưu tập The Luvin</h1><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">{COLLECTION_TEMPLATES.map((template, index) => ( <div key={index} className="bg-white rounded-lg shadow-lg overflow-hidden group"><div className="relative"><img src={template.imageUrl} alt={template.name} className="w-full h-72 object-cover" /><div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center"><button onClick={() => handleCustomize(template.config)} className="bg-white/80 text-luvin-pink font-bold py-2 px-4 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 font-body">Tùy chỉnh mẫu này</button></div></div><div className="p-6"><h3 className="text-2xl font-bold font-body text-luvin-pink">{template.name}</h3></div></div> ))}</div></div> );
 }
 
-const CartPage: React.FC<{ cartItems: FrameConfig[]; onRemoveItem: (index: number) => void; allParts: Record<string, LegoPart>; navigateTo: (page: Page) => void;}> = ({ cartItems, onRemoveItem, allParts, navigateTo }) => {
-    const totalCartPrice = cartItems.reduce((total, item) => total + calculatePrice(item, allParts).totalPrice, 0);
+const CartPage: React.FC<{ cartItems: FrameConfig[]; onRemoveItem: (index: number) => void; allProducts: AllProducts | null; navigateTo: (page: Page) => void;}> = ({ cartItems, onRemoveItem, allProducts, navigateTo }) => {
+    const totalCartPrice = cartItems.reduce((total, item) => total + calculatePrice(item, allProducts).totalPrice, 0);
 
     return (
         <div className="container mx-auto px-4 sm:px-6 py-8">
@@ -1223,20 +1185,20 @@ const CartPage: React.FC<{ cartItems: FrameConfig[]; onRemoveItem: (index: numbe
                 <div className="max-w-4xl mx-auto">
                     <div className="space-y-6">
                         {cartItems.map((item, index) => {
-                            const { totalPrice } = calculatePrice(item, allParts);
-                            const frame = FRAME_OPTIONS.find(f => f.id === item.frameId) || FRAME_OPTIONS[0];
+                            const { totalPrice } = calculatePrice(item, allProducts);
+                            const frame = allProducts?.frames.find(f => f.id === item.frameId);
                             return (
                                 <div key={index} className="bg-white rounded-lg shadow-md p-4 flex flex-col sm:flex-row items-center gap-4">
                                     <div className="w-40 h-40 flex-shrink-0 bg-gray-100 rounded-md p-2">
                                       {item.previewImageUrl ? (
                                         <img src={item.previewImageUrl} alt="Design Preview" className="w-full h-full object-contain" />
                                       ) : (
-                                        <FramePreview config={item} containerWidth={144} onItemTransform={() => {}} onTextUpdate={() => {}} selectedItemId={null} setSelectedItemId={() => {}} isInteractive={false} />
+                                        <FramePreview config={item} containerWidth={144} onItemTransform={() => {}} onTextUpdate={() => {}} selectedItemId={null} setSelectedItemId={() => {}} isInteractive={false} allProducts={allProducts} />
                                       )}
                                     </div>
                                     <div className="flex-grow text-center sm:text-left">
                                         <h3 className="font-bold text-lg font-body text-luvin-pink">Khung tùy chỉnh</h3>
-                                        <p className="text-sm text-gray-600">Kích thước: {frame.name}</p>
+                                        <p className="text-sm text-gray-600">Kích thước: {frame?.name}</p>
                                         <p className="text-sm text-gray-600">Số nhân vật: {item.characters.length}</p>
                                     </div>
                                     <div className="flex-shrink-0 text-center sm:text-right">
@@ -1267,10 +1229,10 @@ const CartPanel: React.FC<{
   onClose: () => void;
   cartItems: FrameConfig[];
   onRemoveItem: (index: number) => void;
-  allParts: Record<string, LegoPart>;
+  allProducts: AllProducts | null;
   navigateTo: (page: Page) => void;
-}> = ({ isOpen, onClose, cartItems, onRemoveItem, allParts, navigateTo }) => {
-  const subtotal = cartItems.reduce((total, item) => total + calculatePrice(item, allParts).totalPrice, 0);
+}> = ({ isOpen, onClose, cartItems, onRemoveItem, allProducts, navigateTo }) => {
+  const subtotal = cartItems.reduce((total, item) => total + calculatePrice(item, allProducts).totalPrice, 0);
 
   const handleCheckout = () => {
     onClose();
@@ -1296,20 +1258,20 @@ const CartPanel: React.FC<{
         ) : (
           <div className="flex-grow overflow-y-auto p-4 space-y-4">
             {cartItems.map((item, index) => {
-              const { totalPrice } = calculatePrice(item, allParts);
-              const frame = FRAME_OPTIONS.find(f => f.id === item.frameId) || FRAME_OPTIONS[0];
+              const { totalPrice } = calculatePrice(item, allProducts);
+              const frame = allProducts?.frames.find(f => f.id === item.frameId);
               return (
                 <div key={index} className="flex gap-4">
                   <div className="w-20 h-20 flex-shrink-0 bg-gray-100 rounded p-1">
                      {item.previewImageUrl ? (
                         <img src={item.previewImageUrl} alt="Design Preview" className="w-full h-full object-contain" />
                       ) : (
-                        <FramePreview config={item} containerWidth={72} isInteractive={false} onItemTransform={()=>{}} onTextUpdate={()=>{}} selectedItemId={null} setSelectedItemId={()=>{}} />
+                        <FramePreview config={item} containerWidth={72} isInteractive={false} onItemTransform={()=>{}} onTextUpdate={()=>{}} selectedItemId={null} setSelectedItemId={()=>{}} allProducts={allProducts} />
                       )}
                   </div>
                   <div className="flex-grow">
                     <h3 className="text-sm font-semibold">Khung LEGO tùy chỉnh</h3>
-                    <p className="text-xs text-gray-500">{frame.name}</p>
+                    <p className="text-xs text-gray-500">{frame?.name}</p>
                     <p className="text-sm font-bold mt-1">{formatCurrency(totalPrice)}</p>
                   </div>
                   <button onClick={() => onRemoveItem(index)} className="text-red-500 self-start p-1 text-lg">&times;</button>
@@ -1343,7 +1305,7 @@ interface AddressAPIResponse {
     wards?: AddressAPIResponse[];
 }
 
-const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string, LegoPart>; onConfirmOrder: (details: OrderDetails) => void; }> = ({ cartItems, allParts, onConfirmOrder }) => {
+const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allProducts: AllProducts | null; onConfirmOrder: (details: OrderDetails) => void; }> = ({ cartItems, allProducts, onConfirmOrder }) => {
     const [customerName, setCustomerName] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
@@ -1362,7 +1324,6 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
     const [isPackagingSelected, setIsPackagingSelected] = useState(false);
     const [shippingMethod, setShippingMethod] = useState<'standard' | 'express' | 'book'>('standard');
 
-    // Fetch provinces
     useEffect(() => {
         const fetchProvinces = async () => {
             try {
@@ -1376,7 +1337,6 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
         fetchProvinces();
     }, []);
 
-    // Fetch districts when province changes
     useEffect(() => {
         if (selectedProvince?.code) {
             const fetchDistricts = async () => {
@@ -1394,7 +1354,6 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
         }
     }, [selectedProvince]);
 
-    // Fetch wards when district changes
     useEffect(() => {
         if (selectedDistrict?.code) {
             const fetchWards = async () => {
@@ -1412,22 +1371,14 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
         }
     }, [selectedDistrict]);
     
-    const removeAccents = (str: string) => {
-        return str
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .replace(/đ/g, "d")
-            .replace(/Đ/g, "D");
-    };
-
     const { subtotal, shippingCost, packagingFee, total, amountToPay } = useMemo(() => {
-        const subtotal = cartItems.reduce((total, item) => total + calculatePrice(item, allParts).totalPrice, 0);
+        const subtotal = cartItems.reduce((total, item) => total + calculatePrice(item, allProducts).totalPrice, 0);
         const packagingFee = 30000;
         const shippingCost = shippingMethod === 'standard' ? 25000 : shippingMethod === 'express' ? 45000 : 0;
         const total = subtotal + (isPackagingSelected ? packagingFee : 0) + shippingCost;
         const amountToPay = paymentMethod === 'full' ? total : total * 0.7;
         return { subtotal, shippingCost, packagingFee, total, amountToPay };
-    }, [cartItems, allParts, shippingMethod, isPackagingSelected, paymentMethod]);
+    }, [cartItems, allProducts, shippingMethod, isPackagingSelected, paymentMethod]);
 
     const handleProceedToConfirmation = (e: React.MouseEvent<HTMLButtonElement>) => {
         e.preventDefault();
@@ -1443,19 +1394,14 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
             return;
         }
         
-        const formattedNameNoAccents = removeAccents(customerName.trim()).toUpperCase();
-        // Use a more unique Order ID format
         const timestamp = Date.now().toString().slice(-4);
         const randomPart = Math.floor(Math.random() * 100).toString().padStart(2, '0');
         const orderId = `#TL${timestamp}${randomPart}`;
-
         const fullAddress = `${streetAddress}, ${selectedWard.name}, ${selectedDistrict.name}, ${selectedProvince.name}`;
-
-        const BANK_ID = '970407'; // Techcombank
+        const BANK_ID = '970407';
         const ACCOUNT_NO = '65838666666';
         const ACCOUNT_NAME = 'THE LUVIN'; 
         const QR_TEMPLATE = 'compact2';
-        
         const amount = Math.round(amountToPay);
         const description = orderId.replace('#', '');
         const vietQRUrl = `https://img.vietqr.io/image/${BANK_ID}-${ACCOUNT_NO}-${QR_TEMPLATE}.png?amount=${amount}&addInfo=${encodeURIComponent(description)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
@@ -1464,22 +1410,14 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
             orderId,
             customer: { name: customerName, phone: customerPhone, email: customerEmail, address: fullAddress },
             items: cartItems,
-            pricing: {
-                subtotal,
-                packagingFee: isPackagingSelected ? packagingFee : 0,
-                shippingCost,
-                total: total,
-                paid: amountToPay,
-                remaining: total - amountToPay,
-            },
+            pricing: { subtotal, packagingFee: isPackagingSelected ? packagingFee : 0, shippingCost, total: total, paid: amountToPay, remaining: total - amountToPay, },
             paymentMethod: paymentMethod === 'deposit' ? 'Cọc 70%' : 'Thanh toán toàn bộ',
             shippingMethod,
-            notes: '', // Notes field removed from UI
+            notes: '',
             vietQRUrl,
             transferContent: description,
             desiredDeliveryDate,
         };
-
         onConfirmOrder(orderDetails);
     };
 
@@ -1491,8 +1429,6 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
         <div className="bg-gray-50 font-body">
             <div className="container mx-auto px-4 sm:px-6 py-8 lg:py-12">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                    
-                    {/* Left Column: Form */}
                     <div className="lg:col-span-7 space-y-6">
                         <div className="bg-white p-6 rounded-lg border border-gray-200">
                            <h2 className="text-xl font-bold mb-4">Thông tin thanh toán</h2>
@@ -1500,54 +1436,24 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                    <div>
                                        <label className={formLabelClasses}>Họ và tên <span className="text-red-500">*</span></label>
-                                       <input type="text" placeholder="Nhập Họ và tên" className={formInputClasses} required 
-                                           value={customerName}
-                                           onChange={e => setCustomerName(e.target.value)}
-                                       />
+                                       <input type="text" placeholder="Nhập Họ và tên" className={formInputClasses} required value={customerName} onChange={e => setCustomerName(e.target.value)} />
                                    </div>
                                    <div>
                                        <label className={formLabelClasses}>Số điện thoại <span className="text-red-500">*</span></label>
-                                       <input type="tel" placeholder="Nhập SĐT" className={formInputClasses} required 
-                                           value={customerPhone}
-                                           onChange={e => setCustomerPhone(e.target.value)}
-                                       />
+                                       <input type="tel" placeholder="Nhập SĐT" className={formInputClasses} required value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} />
                                    </div>
                                </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                    <div>
                                        <label className={formLabelClasses}>Tỉnh/Thành phố <span className="text-red-500">*</span></label>
-                                       <select 
-                                           className={formSelectClasses}
-                                           value={selectedProvince?.code || ''}
-                                           onChange={(e) => {
-                                               const code = parseInt(e.target.value);
-                                               const name = provinces.find(p => p.code === code)?.name || '';
-                                               setSelectedProvince({code, name});
-                                               setSelectedDistrict(null);
-                                               setWards([]);
-                                               setSelectedWard(null);
-                                           }}
-                                           required
-                                       >
+                                       <select className={formSelectClasses} value={selectedProvince?.code || ''} onChange={(e) => { const code = parseInt(e.target.value); const name = provinces.find(p => p.code === code)?.name || ''; setSelectedProvince({code, name}); setSelectedDistrict(null); setWards([]); setSelectedWard(null); }} required>
                                            <option value="" disabled>Chọn Tỉnh/Thành phố</option>
                                            {provinces.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
                                        </select>
                                    </div>
                                    <div>
                                        <label className={formLabelClasses}>Quận/Huyện <span className="text-red-500">*</span></label>
-                                       <select 
-                                           className={formSelectClasses}
-                                           value={selectedDistrict?.code || ''}
-                                           onChange={(e) => {
-                                               const code = parseInt(e.target.value);
-                                               const name = districts.find(d => d.code === code)?.name || '';
-                                               setSelectedDistrict({code, name});
-                                               setWards([]);
-                                               setSelectedWard(null);
-                                           }}
-                                           disabled={!selectedProvince}
-                                           required
-                                       >
+                                       <select className={formSelectClasses} value={selectedDistrict?.code || ''} onChange={(e) => { const code = parseInt(e.target.value); const name = districts.find(d => d.code === code)?.name || ''; setSelectedDistrict({code, name}); setWards([]); setSelectedWard(null); }} disabled={!selectedProvince} required >
                                            <option value="" disabled>Chọn Quận/Huyện</option>
                                            {districts.map(d => <option key={d.code} value={d.code}>{d.name}</option>)}
                                        </select>
@@ -1555,27 +1461,14 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
                                </div>
                                <div>
                                     <label className={formLabelClasses}>Phường/Xã <span className="text-red-500">*</span></label>
-                                    <select 
-                                       className={formSelectClasses}
-                                       value={selectedWard?.code || ''}
-                                       onChange={(e) => {
-                                           const code = parseInt(e.target.value);
-                                           const name = wards.find(w => w.code === code)?.name || '';
-                                           setSelectedWard({code, name});
-                                       }}
-                                       disabled={!selectedDistrict}
-                                       required
-                                    >
+                                    <select className={formSelectClasses} value={selectedWard?.code || ''} onChange={(e) => { const code = parseInt(e.target.value); const name = wards.find(w => w.code === code)?.name || ''; setSelectedWard({code, name}); }} disabled={!selectedDistrict} required >
                                        <option value="" disabled>Chọn Phường/Xã</option>
                                        {wards.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}
                                     </select>
                                </div>
                                <div>
                                    <label className={formLabelClasses}>Địa chỉ cụ thể <span className="text-red-500">*</span></label>
-                                   <input type="text" placeholder="Số nhà, tên đường..." className={formInputClasses} required 
-                                    value={streetAddress}
-                                    onChange={(e) => setStreetAddress(e.target.value)}
-                                   />
+                                   <input type="text" placeholder="Số nhà, tên đường..." className={formInputClasses} required value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)} />
                                </div>
                                <div>
                                    <label className={formLabelClasses}>Địa chỉ Email <span className="text-red-500">*</span></label>
@@ -1583,14 +1476,7 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
                                </div>
                                <div>
                                    <label className={formLabelClasses}>Ngày nhận hàng mong muốn <span className="text-red-500">*</span></label>
-                                   <input 
-                                    type="date" 
-                                    className={formInputClasses} 
-                                    value={desiredDeliveryDate}
-                                    onChange={(e) => setDesiredDeliveryDate(e.target.value)}
-                                    min={new Date().toISOString().split('T')[0]}
-                                    required
-                                   />
+                                   <input type="date" className={formInputClasses} value={desiredDeliveryDate} onChange={(e) => setDesiredDeliveryDate(e.target.value)} min={new Date().toISOString().split('T')[0]} required />
                                </div>
                            </div>
                         </div>
@@ -1637,25 +1523,18 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
                                </div>
                                <div className="flex items-center gap-4">
                                   <p className="font-semibold text-sm">{formatCurrency(30000)}</p>
-                                  <input 
-                                    type="checkbox" 
-                                    className="h-5 w-5 rounded text-luvin-pink focus:ring-luvin-pink"
-                                    checked={isPackagingSelected}
-                                    onChange={(e) => setIsPackagingSelected(e.target.checked)}
-                                   />
+                                  <input type="checkbox" className="h-5 w-5 rounded text-luvin-pink focus:ring-luvin-pink" checked={isPackagingSelected} onChange={(e) => setIsPackagingSelected(e.target.checked)} />
                                </div>
                            </div>
                         </div>
                     </div>
                     
-                    {/* Right Column: Summary */}
                     <div className="lg:col-span-5">
                        <div className="lg:sticky lg:top-24 bg-white p-6 rounded-lg border border-gray-200">
                           <h2 className="text-xl font-bold mb-4 border-b pb-3">Đơn hàng của bạn</h2>
                           
                           <div className="space-y-3 max-h-48 overflow-y-auto pr-2 mb-4">
                               {cartItems.map((item, index) => {
-                                  const frame = FRAME_OPTIONS.find(f => f.id === item.frameId) || FRAME_OPTIONS[0];
                                   return (
                                       <div key={index} className="flex justify-between items-center text-sm">
                                           <div className="flex items-center gap-3">
@@ -1710,27 +1589,7 @@ const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string
     );
 }
 
-const OrderConfirmationPage: React.FC<{ details: OrderDetails; allParts: Record<string, LegoPart>; }> = ({ details, allParts }) => {
-
-    useEffect(() => {
-        const sendEmail = async () => {
-            console.log("Attempting to send order confirmation email...");
-            try {
-                console.log("===== DEVELOPMENT: SIMULATING EMAIL PAYLOAD =====");
-                console.log("This data WOULD BE SENT to your backend at /api/send-email:");
-                console.log(JSON.stringify(details, null, 2));
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                console.log("Simulation complete. In a real app, the email would now be sent.");
-            } catch (error) {
-                console.error("Failed to send order confirmation email:", error);
-            }
-        };
-
-        if (details.customer.email) {
-          sendEmail();
-        }
-    }, [details]);
-    
+const OrderConfirmationPage: React.FC<{ details: OrderDetails; allProducts: AllProducts | null; }> = ({ details, allProducts }) => {
     return (
         <div className="bg-gray-50">
             <div className="container mx-auto px-4 sm:px-6 py-8">
@@ -1753,7 +1612,7 @@ const OrderConfirmationPage: React.FC<{ details: OrderDetails; allParts: Record<
                         
                         <div className="space-y-3 max-h-60 overflow-y-auto pr-2 border-b pb-4">
                              {details.items.map((item, index) => {
-                                const { totalPrice } = calculatePrice(item, allParts);
+                                const { totalPrice } = calculatePrice(item, allProducts);
                                 return (
                                      <div key={index} className="flex justify-between items-center text-sm">
                                          <div className="flex items-center gap-3">
@@ -1805,124 +1664,6 @@ const OrderConfirmationPage: React.FC<{ details: OrderDetails; allParts: Record<
     );
 }
 
-const OrderLookupPage: React.FC<{ allOrders: Record<string, StoredOrder> }> = ({ allOrders }) => {
-    const [orderId, setOrderId] = useState('');
-    const [result, setResult] = useState<StoredOrder | null | string>(null);
-
-    const handleLookup = (e: React.FormEvent) => {
-        e.preventDefault();
-        const foundOrder = allOrders[orderId];
-        if (foundOrder) {
-            setResult(foundOrder);
-        } else {
-            setResult('Không tìm thấy đơn hàng với mã này.');
-        }
-    };
-
-    const StatusTimeline: React.FC<{ currentStatus: OrderStatus }> = ({ currentStatus }) => {
-        const statuses: OrderStatus[] = ['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng'];
-        const currentIndex = statuses.indexOf(currentStatus);
-
-        return (
-            <div className="flex items-center justify-between text-xs text-center my-8">
-                {statuses.map((status, index) => {
-                    const isCompleted = index < currentIndex;
-                    const isActive = index === currentIndex;
-                    return (
-                        <React.Fragment key={status}>
-                            <div className="flex flex-col items-center">
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-                                    isCompleted ? 'bg-green-500 border-green-500 text-white' : 
-                                    isActive ? 'border-luvin-pink bg-pink-100' : 'border-gray-300 bg-gray-100'
-                                }`}>
-                                    {isCompleted ? '✓' : isActive ? <div className="w-3 h-3 bg-luvin-pink rounded-full animate-pulse"></div> : '...'}
-                                </div>
-                                <p className={`mt-2 font-semibold ${isActive ? 'text-luvin-pink' : 'text-gray-500'}`}>{status}</p>
-                            </div>
-                            {index < statuses.length - 1 && <div className={`flex-grow h-0.5 ${isCompleted ? 'bg-green-500' : 'bg-gray-300'}`}></div>}
-                        </React.Fragment>
-                    );
-                })}
-            </div>
-        );
-    };
-
-    return (
-        <div className="container mx-auto px-6 py-8 max-w-3xl font-body">
-            <h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Tra cứu đơn hàng</h1>
-            <form onSubmit={handleLookup} className="bg-white p-6 rounded-lg shadow-md flex flex-col sm:flex-row gap-4">
-                <input
-                    type="text"
-                    value={orderId}
-                    onChange={e => setOrderId(e.target.value)}
-                    placeholder="Nhập mã đơn hàng (vd: #TL1234)"
-                    className="flex-grow p-3 border border-pink-200 rounded-lg focus:ring-2 focus:ring-luvin-pink"
-                />
-                <button type="submit" className="bg-luvin-pink text-gray-800 font-bold py-3 px-6 rounded-lg hover:opacity-90 transition-colors">
-                    Tra cứu
-                </button>
-            </form>
-
-            {result && (
-                <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
-                    {typeof result === 'string' ? (
-                        <p className="text-center text-red-700">{result}</p>
-                    ) : (
-                        <div>
-                            <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b pb-4 mb-4">
-                                <div>
-                                    <h2 className="text-xl font-bold text-luvin-pink">Chi tiết đơn hàng</h2>
-                                    <p className="font-mono text-gray-700">{result.details.orderId}</p>
-                                </div>
-                                <div className="mt-2 sm:mt-0 px-3 py-1 rounded-full text-sm font-semibold bg-pink-100 text-luvin-pink">
-                                    {result.status}
-                                </div>
-                            </div>
-
-                            <StatusTimeline currentStatus={result.status} />
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <h3 className="font-semibold text-gray-800 mb-2">Thông tin giao hàng</h3>
-                                    <div className="text-sm text-gray-600 space-y-1">
-                                        <p><strong>Họ tên:</strong> {result.details.customer.name}</p>
-                                        <p><strong>SĐT:</strong> {result.details.customer.phone}</p>
-                                        <p><strong>Địa chỉ:</strong> {result.details.customer.address}</p>
-                                    </div>
-                                </div>
-                                <div>
-                                    <h3 className="font-semibold text-gray-800 mb-2">Tóm tắt thanh toán</h3>
-                                    <div className="text-sm text-gray-600 space-y-1">
-                                        <p><strong>Tổng cộng:</strong> {formatCurrency(result.details.pricing.total)}</p>
-                                        <p><strong>Đã thanh toán:</strong> {formatCurrency(result.details.pricing.paid)}</p>
-                                        <p><strong>Còn lại:</strong> {formatCurrency(result.details.pricing.remaining)}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div className="mt-6 border-t pt-4">
-                                <h3 className="font-semibold text-gray-800 mb-3">Sản phẩm</h3>
-                                {result.details.items.map((item, index) => (
-                                    <div key={index} className="flex items-center gap-4 bg-gray-50 p-3 rounded-lg">
-                                        <div className="w-24 h-24 flex-shrink-0 bg-white rounded p-1 border">
-                                            <img src={item.previewImageUrl} alt="Preview" className="w-full h-full object-contain" />
-                                        </div>
-                                        <div>
-                                            <p className="font-semibold">Khung LEGO tùy chỉnh</p>
-                                            <p className="text-xs text-gray-500">Kích thước: {FRAME_OPTIONS.find(f => f.id === item.frameId)?.name}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
-
-
 const ContactPage: React.FC = () => {
     return ( <div className="container mx-auto px-6 py-8"><h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Liên hệ The Luvin</h1><div className="bg-white p-8 rounded-lg shadow-lg max-w-3xl mx-auto text-center font-body"><p className="text-lg text-gray-700 mb-6">Chúng tôi luôn sẵn lòng lắng nghe và hỗ trợ bạn. Đừng ngần ngại liên hệ với The Luvin qua các kênh dưới đây.</p><div className="space-y-4 text-left inline-block text-base sm:text-lg"><p className="flex items-center"><span className="font-bold w-24">Địa chỉ:</span> 123 Phố Hàng Bông, Hoàn Kiếm, Hà Nội</p><p className="flex items-center"><span className="font-bold w-24">Hotline:</span> 0987 654 321</p><p className="flex items-center"><span className="font-bold w-24">Email:</span> hello@theluvin.com</p></div><div className="flex justify-center space-x-4 sm:space-x-6 mt-8"><a href="#" className="bg-blue-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-blue-600 transition-colors">Zalo</a><a href="#" className="bg-purple-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-purple-600 transition-colors">Messenger</a><a href="#" className="bg-pink-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-pink-600 transition-colors">Instagram</a></div></div></div> );
 }
@@ -1940,199 +1681,253 @@ const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () 
     );
 };
 
+const OrderLookupPage: React.FC<{}> = () => {
+    const [orderIdInput, setOrderIdInput] = useState('');
+    const [foundOrder, setFoundOrder] = useState<Order | null>(null);
+    const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+
+    const handleLookup = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsLoading(true);
+        setError('');
+        setFoundOrder(null);
+        
+        const term = orderIdInput.trim().replace('#', '');
+        if (!term) {
+            setError('Vui lòng nhập mã đơn hàng.');
+            setIsLoading(false);
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('order_id_str', `#${term}`)
+            .single();
+
+        setIsLoading(false);
+        if (error || !data) {
+            setError('Không tìm thấy đơn hàng với mã này.');
+            console.error(error);
+        } else {
+            setFoundOrder(data as Order);
+        }
+    };
+
+    const StatusTimeline: React.FC<{ currentStatus: OrderStatus }> = ({ currentStatus }) => {
+        const statuses: OrderStatus[] = ['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng'];
+        const currentIndex = statuses.indexOf(currentStatus);
+
+        return (
+            <div className="flex items-center justify-between text-xs text-center my-8">
+                {statuses.map((status, index) => {
+                    const isCompleted = index < currentIndex;
+                    const isActive = index === currentIndex;
+                    return (
+                        <React.Fragment key={status}>
+                            <div className="flex flex-col items-center">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${ isCompleted ? 'bg-green-500 border-green-500 text-white' : isActive ? 'border-luvin-pink bg-pink-100' : 'border-gray-300 bg-gray-100' }`}>
+                                    {isCompleted ? '✓' : isActive ? <div className="w-3 h-3 bg-luvin-pink rounded-full animate-pulse"></div> : '...'}
+                                </div>
+                                <p className={`mt-2 font-semibold ${isActive ? 'text-luvin-pink' : 'text-gray-500'}`}>{status}</p>
+                            </div>
+                            {index < statuses.length - 1 && <div className={`flex-grow h-0.5 ${isCompleted ? 'bg-green-500' : 'bg-gray-300'}`}></div>}
+                        </React.Fragment>
+                    );
+                })}
+            </div>
+        );
+    };
+
+    return (
+        <div className="container mx-auto px-6 py-8 max-w-3xl font-body">
+            <h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Tra cứu đơn hàng</h1>
+            <form onSubmit={handleLookup} className="bg-white p-6 rounded-lg shadow-md flex flex-col sm:flex-row gap-4">
+                <input type="text" value={orderIdInput} onChange={e => setOrderIdInput(e.target.value)} placeholder="Nhập mã đơn hàng (vd: TL1234)" className="flex-grow p-3 border border-pink-200 rounded-lg focus:ring-2 focus:ring-luvin-pink" />
+                <button type="submit" disabled={isLoading} className="bg-luvin-pink text-gray-800 font-bold py-3 px-6 rounded-lg hover:opacity-90 transition-colors disabled:opacity-50">
+                    {isLoading ? 'Đang tìm...' : 'Tra cứu'}
+                </button>
+            </form>
+
+            {error && <p className="mt-4 text-center text-red-600">{error}</p>}
+
+            {foundOrder && (
+                <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
+                    <div>
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b pb-4 mb-4">
+                            <div>
+                                <h2 className="text-xl font-bold text-luvin-pink">Chi tiết đơn hàng</h2>
+                                <p className="font-mono text-gray-700">{foundOrder.order_id_str}</p>
+                            </div>
+                            <div className="mt-2 sm:mt-0 px-3 py-1 rounded-full text-sm font-semibold bg-pink-100 text-luvin-pink">
+                                {foundOrder.status}
+                            </div>
+                        </div>
+                        <StatusTimeline currentStatus={foundOrder.status} />
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
 const App: React.FC = () => {
   const [page, setPage] = useState<Page>('home');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
 
   const [frameConfig, setFrameConfig] = useState<FrameConfig>(() => {
     try {
       const savedConfig = localStorage.getItem('luvinFrameConfig');
       return savedConfig ? JSON.parse(savedConfig) : INITIAL_FRAME_CONFIG;
-    } catch (error) {
-      console.error("Failed to parse frameConfig from localStorage", error);
-      return INITIAL_FRAME_CONFIG;
-    }
+    } catch (error) { return INITIAL_FRAME_CONFIG; }
   });
 
   const [cartItems, setCartItems] = useState<FrameConfig[]>(() => {
     try {
       const savedCart = localStorage.getItem('luvinCartItems');
       return savedCart ? JSON.parse(savedCart) : [];
-    } catch (error) {
-      console.error("Failed to parse cartItems from localStorage", error);
-      return [];
-    }
+    } catch (error) { return []; }
   });
-
-  const [allOrders, setAllOrders] = useState<Record<string, StoredOrder>>({});
-  const [isCartOpen, setIsCartOpen] = useState(false);
-  const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
-
+  
   const [allProducts, setAllProducts] = useState<AllProducts | null>(null);
   const [allBackgrounds, setAllBackgrounds] = useState<AllBackgrounds | null>(null);
-  const { isAuthenticated } = useAuth();
+  const [isDataLoading, setIsDataLoading] = useState(true);
 
-  const fetchAllProducts = useCallback(async () => {
-      try {
-          const res = await fetch(`${API_BASE_URL}/api/products`);
-          if (!res.ok) throw new Error('Failed to fetch products');
-          const data = await res.json();
-          setAllProducts(data);
-      } catch (e) {
-          console.error(e);
-          showToast("Không thể tải dữ liệu sản phẩm", "error");
-      }
-  }, []);
-
-  const fetchAllBackgrounds = useCallback(async () => {
-      try {
-          const res = await fetch(`${API_BASE_URL}/api/backgrounds`);
-          if (!res.ok) throw new Error('Failed to fetch backgrounds');
-          const data = await res.json();
-          setAllBackgrounds(data);
-      } catch (e) {
-          console.error(e);
-          showToast("Không thể tải dữ liệu nền", "error");
-      }
-  }, []);
-
-  useEffect(() => {
-      fetchAllProducts();
-      fetchAllBackgrounds();
-  }, [fetchAllProducts, fetchAllBackgrounds]);
-  
-  const navigateTo = useCallback((newPage: Page) => {
-    window.location.hash = `/${newPage}`;
-    window.scrollTo(0, 0);
-  }, []);
-
-  useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash.replace('#/', '');
-      const newPage = (hash || 'home') as Page;
-      if (newPage.startsWith('admin') && !isAuthenticated) {
-        setPage('login');
-      } else {
-        setPage(newPage);
-      }
-    };
-    window.addEventListener('hashchange', handleHashChange);
-    handleHashChange();
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [isAuthenticated]);
-  
-  useEffect(() => {
-    try {
-      localStorage.setItem('luvinFrameConfig', JSON.stringify(frameConfig));
-    } catch (error) {
-      console.error("Failed to save frameConfig to localStorage", error);
-    }
-  }, [frameConfig]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('luvinCartItems', JSON.stringify(cartItems));
-    } catch (error) {
-      console.error("Failed to save cartItems to localStorage", error);
-    }
-  }, [cartItems]);
-  
-  useEffect(() => {
-    try {
-      const savedOrders = localStorage.getItem('luvinAllOrders');
-      if (savedOrders) setAllOrders(JSON.parse(savedOrders));
-    } catch (e) { console.error(e); }
-  }, []);
-
-  useEffect(() => {
-    try {
-      if (Object.keys(allOrders).length) {
-        localStorage.setItem('luvinAllOrders', JSON.stringify(allOrders));
-      }
-    } catch (e) { console.error(e); }
-  }, [allOrders]);
-
-  const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc: Record<string, LegoPart>, part) => ({ ...acc, [part.id]: part }), {}), []);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [checkoutDetails, setCheckoutDetails] = useState<OrderDetails | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
       setToast({ message, type });
   };
+  
+  const fetchInitialData = useCallback(async () => {
+    setIsDataLoading(true);
+    try {
+        const productsPromise = supabase.from('products').select('*');
+        const backgroundsPromise = supabase.from('backgrounds').select('*');
+        const [{ data: productsData, error: productsError }, { data: backgroundsData, error: backgroundsError }] = await Promise.all([productsPromise, backgroundsPromise]);
 
-  const handleAddToCart = (config: FrameConfig) => {
-      setCartItems(prev => [...prev, config]);
-      showToast('Đã thêm vào giỏ hàng!');
+        if (productsError) throw productsError;
+        if (backgroundsError) throw backgroundsError;
+        
+        const products: AllProducts = { frames: [], lego_parts: { hair: [], face: [], shirt: [], pants: [], hat: [], accessory: [], pet: [] } };
+        (productsData || []).forEach(p => {
+            if (p.type === 'frame') products.frames.push(p as any);
+            else if ((products.lego_parts as any)[p.type]) (products.lego_parts as any)[p.type].push(p as any);
+        });
+
+        const backgrounds: AllBackgrounds = { square: [], rectangle: [] };
+        (backgroundsData || []).forEach(b => {
+            if (b.type === 'square') backgrounds.square.push(b as any);
+            else if (b.type === 'rectangle') backgrounds.rectangle.push(b as any);
+        });
+        setAllProducts(products);
+        setAllBackgrounds(backgrounds);
+    } catch (error) {
+      console.error("Failed to fetch initial data", error);
+      showToast("Không thể tải dữ liệu sản phẩm.", "error");
+    } finally {
+        setIsDataLoading(false);
+    }
+  }, []);
+
+  const handleUserImageUpload = async (file: File, folder: 'backgrounds' | 'charms'): Promise<string | null> => {
+    try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `user_uploads/${folder}/${fileName}`;
+        const { error: uploadError } = await supabase.storage.from('assets').upload(filePath, file);
+        if (uploadError) throw uploadError;
+        const { data } = supabase.storage.from('assets').getPublicUrl(filePath);
+        if (!data.publicUrl) throw new Error("Could not get public URL.");
+        return data.publicUrl;
+    } catch (error) {
+        console.error(`Error uploading image:`, error);
+        showToast('Lỗi khi tải ảnh lên.', 'error');
+        return null;
+    }
   };
 
-  const handleRemoveFromCart = (indexToRemove: number) => {
-      setCartItems(prev => prev.filter((_, index) => index !== indexToRemove));
-  };
+
+  useEffect(() => { fetchInitialData(); }, [fetchInitialData]);
+  useEffect(() => { try { const { previewImageUrl, ...c } = frameConfig; localStorage.setItem('luvinFrameConfig', JSON.stringify(c)); } catch (e) { console.error(e); } }, [frameConfig]);
+  useEffect(() => { try { localStorage.setItem('luvinCartItems', JSON.stringify(cartItems)); } catch (e) { console.error(e); } }, [cartItems]);
+
+  const handleAddToCart = (config: FrameConfig) => { setCartItems(prev => [...prev, config]); showToast('Đã thêm vào giỏ hàng!'); };
+  const handleRemoveFromCart = (indexToRemove: number) => { setCartItems(prev => prev.filter((_, index) => index !== indexToRemove)); };
+  const navigateTo = useCallback((newPage: Page) => { setPage(newPage); window.scrollTo(0, 0); }, []);
 
   const handleConfirmOrder = async (details: OrderDetails) => {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/orders`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(details),
-        });
-        if (!response.ok) throw new Error('Failed to create order');
-        const newOrder: StoredOrder = await response.json();
-        setAllOrders(prev => ({...prev, [newOrder.details.orderId]: newOrder }));
-        setOrderDetails(details);
-        setCartItems([]);
-        navigateTo('order-confirmation');
-    } catch (e) {
-        console.error(e);
-        showToast("Lỗi khi tạo đơn hàng, vui lòng thử lại.", "error");
-    }
+      const { data: newOrder, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          order_id_str: details.orderId,
+          status: 'Chờ thanh toán',
+          customer_name: details.customer.name,
+          customer_phone: details.customer.phone,
+          customer_email: details.customer.email,
+          customer_address: details.customer.address,
+          shipping_method: details.shippingMethod,
+          shipping_cost: details.pricing.shippingCost,
+          packaging_fee: details.pricing.packagingFee,
+          total_price: details.pricing.total,
+          amount_paid: details.pricing.paid,
+          amount_remaining: details.pricing.remaining,
+          payment_method: details.paymentMethod,
+          desired_delivery_date: details.desiredDeliveryDate,
+          notes: details.notes
+        })
+        .select('id')
+        .single();
+      
+      if (orderError || !newOrder) { showToast('Không thể tạo đơn hàng, vui lòng thử lại.', 'error'); console.error('Order insert error:', orderError); return; }
+      
+      const orderItemsData = details.items.map(item => ({
+        order_id: newOrder.id,
+        frame_config: item,
+        preview_image_url: item.previewImageUrl,
+        price: calculatePrice(item, allProducts).totalPrice
+      }));
+      
+      const { error: itemsError } = await supabase.from('order_items').insert(orderItemsData);
+      if (itemsError) { showToast('Lỗi khi lưu chi tiết đơn hàng.', 'error'); console.error('Order items insert error:', itemsError); return; }
+      
+      setCheckoutDetails(details);
+      setCartItems([]);
+      navigateTo('order-confirmation');
   };
   
   const renderCurrentPage = () => {
+    if (isAuthLoading || isDataLoading) { return <div className="flex items-center justify-center h-screen"><p>Đang tải ứng dụng...</p></div>; }
+    const adminPages: Page[] = ['admin-dashboard', 'admin-orders', 'admin-products', 'admin-backgrounds'];
+    if (adminPages.includes(page) && !isAuthenticated) { return <LoginPage navigateTo={navigateTo} showToast={showToast} />; }
     switch (page) {
       case 'home': return <HomePage navigateTo={navigateTo} />;
-      case 'builder': return <BuilderPage config={frameConfig} setConfig={setFrameConfig} navigateTo={navigateTo} onAddToCart={handleAddToCart} showToast={showToast} allBackgrounds={allBackgrounds} />;
-      case 'collection': return <CollectionPage navigateTo={navigateTo} setConfig={setFrameConfig} />;
-      case 'cart': return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allParts={allParts} navigateTo={navigateTo} />;
-      case 'checkout': return <CheckoutPage cartItems={cartItems} allParts={allParts} onConfirmOrder={handleConfirmOrder} />;
-      case 'order-confirmation': return orderDetails ? <OrderConfirmationPage details={orderDetails} allParts={allParts} /> : <HomePage navigateTo={navigateTo} />;
-      case 'order-lookup': return <OrderLookupPage allOrders={allOrders} />;
-      case 'contact': return <ContactPage />;
+      case 'builder': return <BuilderPage config={frameConfig} setConfig={setFrameConfig} navigateTo={navigateTo} onAddToCart={handleAddToCart} showToast={showToast} allProducts={allProducts} allBackgrounds={allBackgrounds} handleUserImageUpload={handleUserImageUpload} />;
+      case 'collection': return <CollectionPage navigateTo={navigateTo} setConfig={setFrameConfig} allProducts={allProducts} />;
+      case 'cart': return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allProducts={allProducts} navigateTo={navigateTo} />;
+      case 'checkout': return <CheckoutPage cartItems={cartItems} allProducts={allProducts} onConfirmOrder={handleConfirmOrder} />;
+      case 'order-confirmation': return checkoutDetails ? <OrderConfirmationPage details={checkoutDetails} allProducts={allProducts} /> : <HomePage navigateTo={navigateTo} />;
+      case 'order-lookup': return <OrderLookupPage />;
       case 'login': return <LoginPage navigateTo={navigateTo} showToast={showToast} />;
-      case 'admin-dashboard':
-      case 'admin-orders':
-      case 'admin-products':
-      case 'admin-backgrounds':
-        return (
-          <AdminLayout navigateTo={navigateTo} page={page}>
-            {page === 'admin-dashboard' && <DashboardPage showToast={showToast} />}
-            {page === 'admin-orders' && <AdminPage showToast={showToast} />}
-            {page === 'admin-products' && <ProductManagementPage allProducts={allProducts} showToast={showToast} onProductUpdate={fetchAllProducts} />}
-            {page === 'admin-backgrounds' && <AdminBackgroundsPage allBackgrounds={allBackgrounds} showToast={showToast} onUpdate={fetchAllBackgrounds} />}
-          </AdminLayout>
-        );
-      default: 
-        navigateTo('home');
-        return <HomePage navigateTo={navigateTo} />;
+      case 'admin-dashboard': return <AdminLayout navigateTo={navigateTo} page={page}><DashboardPage showToast={showToast} /></AdminLayout>;
+      case 'admin-orders': return <AdminLayout navigateTo={navigateTo} page={page}><AdminPage showToast={showToast} /></AdminLayout>;
+      case 'admin-products': return <AdminLayout navigateTo={navigateTo} page={page}><ProductManagementPage allProducts={allProducts} onProductUpdate={fetchInitialData} showToast={showToast} /></AdminLayout>;
+      case 'admin-backgrounds': return <AdminLayout navigateTo={navigateTo} page={page}><AdminBackgroundsPage allBackgrounds={allBackgrounds} onUpdate={fetchInitialData} showToast={showToast} /></AdminLayout>;
+      default: return <HomePage navigateTo={navigateTo} />;
     }
   };
-  
-  const showHeaderFooter = !page.startsWith('admin') && page !== 'login';
 
   return (
     <div className={`min-h-screen flex flex-col text-gray-800 bg-white`}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      {showHeaderFooter && <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} />}
-      <CartPanel 
-        isOpen={isCartOpen} 
-        onClose={() => setIsCartOpen(false)}
-        cartItems={cartItems}
-        onRemoveItem={handleRemoveFromCart}
-        allParts={allParts}
-        navigateTo={navigateTo}
-      />
-      <main className="flex-grow">
-        {renderCurrentPage()}
-      </main>
-      {showHeaderFooter && <Footer />}
+      <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} />
+      <CartPanel isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allProducts={allProducts} navigateTo={navigateTo} />
+      <main className="flex-grow">{renderCurrentPage()}</main>
+      <Footer />
     </div>
   );
 };

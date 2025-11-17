@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { AllBackgrounds, BackgroundOption } from '../types';
 import { supabase } from '../supabase';
 
@@ -35,8 +35,10 @@ const AdminBackgroundsPage: React.FC<{
 
     const handleSave = async (backgroundToSave: BackgroundOption) => {
         try {
-            const { error } = await supabase.from('backgrounds').upsert(backgroundToSave, { onConflict: 'id' });
+            const { error } = await supabase.from('backgrounds').upsert(backgroundToSave);
+            
             if (error) throw error;
+            
             showToast(`Lưu nền thành công!`, 'success');
             onUpdate();
         } catch (err) {
@@ -50,6 +52,7 @@ const AdminBackgroundsPage: React.FC<{
     
     const handleDelete = async (backgroundToDelete: BackgroundOption) => {
         if (!window.confirm(`Bạn có chắc muốn xóa nền "${backgroundToDelete.name}" không?`)) return;
+
         try {
             const { error } = await supabase.from('backgrounds').delete().eq('id', backgroundToDelete.id);
             if (error) throw error;
@@ -68,7 +71,13 @@ const AdminBackgroundsPage: React.FC<{
         <div className="p-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-6">Quản lý Nền</h1>
             <div className="bg-white p-4 rounded-lg shadow mb-6 flex gap-4">
-                <input type="text" placeholder="Tìm theo tên, dịp..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="flex-grow p-2 border rounded-md" />
+                <input
+                    type="text"
+                    placeholder="Tìm theo tên, dịp..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="flex-grow p-2 border rounded-md"
+                />
                 <select value={filterType} onChange={e => setFilterType(e.target.value as any)} className="p-2 border rounded-md bg-white">
                     <option value="all">Tất cả</option>
                     <option value="square">Vuông</option>
@@ -78,6 +87,7 @@ const AdminBackgroundsPage: React.FC<{
                     + Thêm mới
                 </button>
             </div>
+
             <div className="bg-white rounded-lg shadow overflow-x-auto">
                  <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
@@ -112,56 +122,32 @@ const AdminBackgroundsPage: React.FC<{
                     </tbody>
                 </table>
             </div>
+
             {isModalOpen && (
                 <BackgroundEditModal 
                     background={editingBackground} 
                     onClose={() => setIsModalOpen(false)}
                     onSave={handleSave}
-                    showToast={showToast}
                 />
             )}
         </div>
     );
 };
 
-const BackgroundEditModal: React.FC<{ background: BackgroundOption | null, onClose: () => void, onSave: (bg: BackgroundOption) => void, showToast: (msg: string, type: 'success' | 'error') => void; }> = ({ background, onClose, onSave, showToast }) => {
+const BackgroundEditModal: React.FC<{ background: BackgroundOption | null, onClose: () => void, onSave: (bg: BackgroundOption) => void }> = ({ background, onClose, onSave }) => {
     const [formData, setFormData] = useState<BackgroundOption>(background || { name: '', url: '', category: '', isVisible: true, id: '', type: 'square' });
-    const [isUploading, setIsUploading] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
         const isCheckbox = type === 'checkbox';
-        setFormData(prev => ({ ...prev, [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value } as BackgroundOption));
+        setFormData(prev => {
+            const updated = { ...prev, [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value };
+            if (name === 'type') {
+                updated.type = value as 'square' | 'rectangle';
+            }
+            return updated;
+        });
     };
-    
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        setIsUploading(true);
-        try {
-            const fileExt = file.name.split('.').pop();
-            const fileName = `${formData.type}-${Date.now()}.${fileExt}`;
-            const filePath = `backgrounds/${formData.type}/${fileName}`;
-            
-            const { error: uploadError } = await supabase.storage.from('assets').upload(filePath, file, { upsert: true });
-            if (uploadError) throw uploadError;
-
-            const { data } = supabase.storage.from('assets').getPublicUrl(filePath);
-            if (!data.publicUrl) throw new Error("Could not get public URL");
-
-            setFormData(prev => ({ ...prev, url: data.publicUrl }));
-            showToast("Tải ảnh lên thành công!", "success");
-
-        } catch (error) {
-            console.error(error);
-            showToast("Lỗi khi tải ảnh lên.", "error");
-        } finally {
-            setIsUploading(false);
-        }
-    };
-
 
     return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -173,14 +159,8 @@ const BackgroundEditModal: React.FC<{ background: BackgroundOption | null, onClo
                         <input name="name" value={formData.name} onChange={handleChange} className="w-full p-2 border rounded-md" />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium">Ảnh nền</label>
-                        <div className="flex items-center gap-3 mt-1">
-                            <input name="url" value={formData.url} onChange={handleChange} className="w-full p-2 border rounded-md bg-gray-50" placeholder="URL hình ảnh..."/>
-                            <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="flex-shrink-0 bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50">
-                                {isUploading ? 'Đang tải...' : 'Tải lên'}
-                            </button>
-                        </div>
-                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/png, image/jpeg, image/webp" />
+                        <label className="block text-sm font-medium">URL Ảnh</label>
+                        <input name="url" value={formData.url} onChange={handleChange} className="w-full p-2 border rounded-md" />
                     </div>
                      <div className="grid grid-cols-2 gap-4">
                          <div>
