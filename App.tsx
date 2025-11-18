@@ -915,6 +915,7 @@ const BuilderPage: React.FC<{
   const [isSaving, setIsSaving] = useState(false);
   const [isBottomBarVisible, setIsBottomBarVisible] = useState(true);
   const lastScrollY = useRef(0);
+  const [isEditingText, setIsEditingText] = useState(false);
 
   useEffect(() => {
     const controlNavbar = () => {
@@ -981,7 +982,7 @@ const BuilderPage: React.FC<{
       });
   }, [setConfig]);
 
-  const handleItemDelete = useCallback((id: string) => {
+  const handleItemRemoveCompletely = useCallback((id: string) => {
     const [type, ...rest] = id.split('-');
     const rawId = rest.join('-');
     
@@ -989,25 +990,46 @@ const BuilderPage: React.FC<{
 
     setConfig(prev => {
         if (type === 'text') {
-            const idToDelete = parseInt(rawId);
+            const idToDelete = parseInt(rawId, 10);
             return { ...prev, texts: prev.texts.filter(t => t.id !== idToDelete) };
         }
-        const itemId = parseInt(rawId);
+        const itemId = parseInt(rawId, 10);
         if (type === 'character') return { ...prev, characters: prev.characters.filter(item => item.id !== itemId) };
         if (type === 'item') return { ...prev, draggableItems: prev.draggableItems.filter(item => item.id !== itemId) };
         return prev;
     });
   }, [setConfig]);
   
+  const handleItemDelete = useCallback((id: string) => {
+    const [type, ...rest] = id.split('-');
+    const rawId = rest.join('-');
+    
+    if (type === 'text') {
+        const idToUpdate = parseInt(rawId, 10);
+        // As requested, this only clears the text content, doesn't remove the item.
+        setConfig(prev => ({
+            ...prev,
+            texts: prev.texts.map(t => t.id === idToUpdate ? { ...t, content: '' } : t)
+        }));
+    } else {
+        // For other items, the delete key will remove them completely.
+        handleItemRemoveCompletely(id);
+    }
+  }, [setConfig, handleItemRemoveCompletely]);
+  
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItemId) {
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItemId && !isEditingText) {
+            // Prevent browser back navigation on backspace
+            if (e.key === 'Backspace' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+                e.preventDefault();
+            }
             handleItemDelete(selectedItemId);
         }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedItemId, handleItemDelete]);
+  }, [selectedItemId, handleItemDelete, isEditingText]);
 
   const handleTextUpdate = useCallback((id: number, updates: Partial<TextConfig>) => {
     setConfig(prev => ({
@@ -1107,10 +1129,12 @@ const BuilderPage: React.FC<{
                         config={config} 
                         containerWidth={previewWidth - 32} // Account for padding
                         onItemTransform={handleItemTransform} 
+                        onItemRemove={handleItemRemoveCompletely}
                         onTextUpdate={handleTextUpdate}
                         className="w-full h-full"
                         selectedItemId={selectedItemId}
                         setSelectedItemId={setSelectedItemId}
+                        setIsEditingText={setIsEditingText}
                     />
                 </div>
                 <div className="h-10 mt-4"></div>
@@ -1212,7 +1236,7 @@ const CartPage: React.FC<{ cartItems: FrameConfig[]; onRemoveItem: (index: numbe
                                       {item.previewImageUrl ? (
                                         <img src={item.previewImageUrl} alt="Design Preview" className="w-full h-full object-contain" />
                                       ) : (
-                                        <FramePreview config={item} containerWidth={144} onItemTransform={() => {}} onTextUpdate={() => {}} selectedItemId={null} setSelectedItemId={() => {}} isInteractive={false} />
+                                        <FramePreview config={item} containerWidth={144} onItemTransform={() => {}} onTextUpdate={() => {}} selectedItemId={null} setSelectedItemId={() => {}} isInteractive={false} onItemRemove={() => {}} setIsEditingText={() => {}} />
                                       )}
                                     </div>
                                     <div className="flex-grow text-center sm:text-left">
@@ -1285,7 +1309,7 @@ const CartPanel: React.FC<{
                      {item.previewImageUrl ? (
                         <img src={item.previewImageUrl} alt="Design Preview" className="w-full h-full object-contain" />
                       ) : (
-                        <FramePreview config={item} containerWidth={72} isInteractive={false} onItemTransform={()=>{}} onTextUpdate={()=>{}} selectedItemId={null} setSelectedItemId={()=>{}} />
+                        <FramePreview config={item} containerWidth={72} isInteractive={false} onItemTransform={()=>{}} onTextUpdate={()=>{}} selectedItemId={null} setSelectedItemId={()=>{}} onItemRemove={() => {}} setIsEditingText={() => {}} />
                       )}
                   </div>
                   <div className="flex-grow">

@@ -15,11 +15,13 @@ interface FramePreviewProps {
   config: FrameConfig;
   containerWidth?: number;
   onItemTransform: (id: string, newTransform: Transform) => void;
+  onItemRemove: (id: string) => void;
   onTextUpdate: (id: number, updates: Partial<TextConfig>) => void;
   className?: string;
   isInteractive?: boolean;
   selectedItemId: string | null;
   setSelectedItemId: (id: string | null) => void;
+  setIsEditingText: (isEditing: boolean) => void;
 }
 
 const LegoCharacter: React.FC<{ character: LegoCharacterConfig; pxPerCm: number }> = ({ character, pxPerCm }) => {
@@ -166,7 +168,7 @@ const EditableText: React.FC<{
     return (
         <div style={{minWidth: '50px', width: '100%', height: '100%'}} onDoubleClick={handleDoubleClick}>
             <p style={textStyle} >
-                {text.content}
+                {text.content || " "}
             </p>
         </div>
     );
@@ -178,6 +180,7 @@ const Transformable: React.FC<{
     id: string;
     initialTransform: Transform;
     onTransform: (id: string, transform: Transform) => void;
+    onRemove: (id: string) => void;
     parentRef: React.RefObject<HTMLDivElement>;
     isSelected: boolean;
     onSelect: (id: string) => void;
@@ -188,7 +191,7 @@ const Transformable: React.FC<{
     style?: React.CSSProperties;
     isTextItem?: boolean;
     containerSize?: { width: number; height: number; };
-}> = ({ children, id, initialTransform, onTransform, parentRef, isSelected, onSelect, isResizable = true, isRotatable = true, isDraggable = true, zIndex, style, isTextItem, containerSize }) => {
+}> = ({ children, id, initialTransform, onTransform, onRemove, parentRef, isSelected, onSelect, isResizable = true, isRotatable = true, isDraggable = true, zIndex, style, isTextItem, containerSize }) => {
     
     const getClientCoords = (e: MouseEvent | TouchEvent): { x: number; y: number } | null => {
       if ('touches' in e && e.touches.length > 0) {
@@ -355,6 +358,14 @@ const Transformable: React.FC<{
             {children}
             {isSelected && isDraggable && (
                 <>
+                  <div
+                    onMouseDown={(e) => { e.stopPropagation(); onRemove(id); }}
+                    onTouchStart={(e) => { e.stopPropagation(); onRemove(id); }}
+                    className="transform-handle absolute -top-2 -left-2 cursor-pointer bg-red-500 text-white rounded-full h-5 w-5 flex items-center justify-center text-xs font-bold border-2 border-white"
+                    title="Remove Item"
+                  >
+                    &times;
+                  </div>
                   {isTextItem ? (
                       <div onMouseDown={handleResizeWidthStart} onTouchStart={handleResizeWidthStart} className="transform-handle absolute top-1/2 -right-1.5 -translate-y-1/2 cursor-ew-resize bg-luvin-pink w-2 h-6 rounded-sm border-2 border-white" title="Resize Width"></div>
                   ) : (
@@ -370,11 +381,10 @@ const Transformable: React.FC<{
 };
 
 
-const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ config, containerWidth = 400, onItemTransform, onTextUpdate, className, isInteractive = true, selectedItemId, setSelectedItemId }, ref) => {
+const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ config, containerWidth = 400, onItemTransform, onItemRemove, onTextUpdate, className, isInteractive = true, selectedItemId, setSelectedItemId, setIsEditingText }, ref) => {
   const frameOption = FRAME_OPTIONS.find(f => f.id === config.frameId) || FRAME_OPTIONS[0];
   const previewContainerRef = useRef<HTMLDivElement>(null);
-  const [isCurrentlyEditingText, setIsCurrentlyEditingText] = useState(false);
-
+  
   // --- START OF FIX: Proportional Scaling Logic ---
   // 1. Find the largest dimension (width or height) across all available frames.
   const maxDimensionCm = useMemo(() => 
@@ -434,7 +444,7 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                     const id = `character-${char.id}`;
                     return (
                         <Transformable 
-                            key={id} id={id} initialTransform={char} onTransform={onItemTransform} 
+                            key={id} id={id} initialTransform={char} onTransform={onItemTransform} onRemove={onItemRemove}
                             parentRef={previewContainerRef} isSelected={selectedItemId === id} onSelect={setSelectedItemId}
                             isResizable={false} isRotatable={false} isDraggable={isInteractive}
                             zIndex={5} // Base z-index for characters
@@ -457,7 +467,7 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                     const id = `item-${item.id}`;
                     return (
                         <Transformable 
-                            key={id} id={id} initialTransform={item} onTransform={onItemTransform} 
+                            key={id} id={id} initialTransform={item} onTransform={onItemTransform} onRemove={onItemRemove}
                             parentRef={previewContainerRef} isSelected={selectedItemId === id} onSelect={setSelectedItemId}
                             isResizable={isInteractive && !isCharm} 
                             isRotatable={isInteractive} 
@@ -485,10 +495,11 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                             key={id} id={id} 
                             initialTransform={{x: text.x, y: text.y, rotation: text.rotation, scale: text.scale, width: text.width}} 
                             onTransform={onItemTransform} 
+                            onRemove={onItemRemove}
                             parentRef={previewContainerRef} 
                             isSelected={selectedItemId === id} 
                             onSelect={setSelectedItemId}
-                            isDraggable={isInteractive && !isCurrentlyEditingText}
+                            isDraggable={isInteractive}
                             zIndex={15} // Text is on top of everything
                             isTextItem={true}
                             containerSize={{ width: backgroundWidth, height: backgroundHeight }}
@@ -497,8 +508,8 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                            <EditableText
                              text={text}
                              onUpdate={(updates) => onTextUpdate(text.id, updates)}
-                             onBeginEditing={() => setIsCurrentlyEditingText(true)}
-                             onEndEditing={() => setIsCurrentlyEditingText(false)}
+                             onBeginEditing={() => setIsEditingText(true)}
+                             onEndEditing={() => setIsEditingText(false)}
                            />
                         </Transformable>
                     );
