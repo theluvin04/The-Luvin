@@ -1,12 +1,12 @@
-
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, OrderDetails, StoredOrder, OrderStatus } from './types';
+import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, Order } from './types';
 import { 
     FRAME_OPTIONS, 
     LEGO_PARTS, 
     INITIAL_FRAME_CONFIG, 
     COLLECTION_TEMPLATES, 
     FEEDBACK_ITEMS, 
+    MOCK_ORDERS, 
     PRESET_BACKGROUNDS_SQUARE, 
     PRESET_BACKGROUNDS_RECTANGLE, 
     PRODUCT_HIGHLIGHTS,
@@ -325,7 +325,7 @@ const PartButton: React.FC<{
 
 const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<React.SetStateAction<FrameConfig>> }> = ({ config, setConfig }) => {
     const [activeCharId, setActiveCharId] = useState<number | null>(config.characters[0]?.id || null);
-    const [activePartType, setActivePartType] = useState<'shirt' | 'pants' | 'face' | 'hair' | 'hat'>('shirt');
+    const [activePartType, setActivePartType] = useState<'hair' | 'hat' | 'face' | 'shirt' | 'pants'>('shirt');
     const activeCharacter = config.characters.find(c => c.id === activeCharId);
     const [printDialogCharId, setPrintDialogCharId] = useState<number | null>(null);
 
@@ -341,8 +341,8 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
             id: newId, 
             shirt: LEGO_PARTS.shirt[0], 
             pants: LEGO_PARTS.pants[0],
-            face: LEGO_PARTS.face[0],
-            hair: undefined, // Default is no hair
+            face: LEGO_PARTS.face[0], 
+            hair: LEGO_PARTS.hair[0],
             x: 30 + (config.characters.length % 3) * 20, 
             y: 75, 
             rotation: 0, 
@@ -367,8 +367,16 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
                     const newChar = { ...c, [part.type]: part };
                     if (part.type === 'shirt') newChar.selectedShirtColor = part.colors?.[0];
                     if (part.type === 'pants') newChar.selectedPantsColor = part.colors?.[0];
-                    if (part.type === 'hair') newChar.hat = undefined;
-                    if (part.type === 'hat') newChar.hair = undefined;
+                    // When selecting hair, remove hat and clear previousHair
+                    if (part.type === 'hair') {
+                        newChar.hat = undefined;
+                        newChar.previousHair = undefined;
+                    }
+                    // When selecting a hat, store the current hair and remove it
+                    if (part.type === 'hat') {
+                        newChar.previousHair = c.hair;
+                        newChar.hair = undefined;
+                    }
                     return newChar;
                 }
                 return c;
@@ -380,7 +388,18 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
       if (!activeCharId) return;
       setConfig(prev => ({
         ...prev,
-        characters: prev.characters.map(c => c.id === activeCharId ? { ...c, [partType]: undefined } : c)
+        characters: prev.characters.map(c => {
+            if (c.id === activeCharId) {
+                const updatedChar = { ...c, [partType]: undefined };
+                // If we are deselecting a hat, restore the previous hair
+                if (partType === 'hat' && c.previousHair) {
+                    updatedChar.hair = c.previousHair;
+                    updatedChar.previousHair = undefined;
+                }
+                return updatedChar;
+            }
+            return c;
+        })
       }));
     }
     
@@ -412,7 +431,15 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
         }));
     }
     
-    const partTypes: { key: 'shirt' | 'pants' | 'face' | 'hair' | 'hat', label: string }[] = [
+    const handleFlipChar = () => {
+        if (!activeCharId) return;
+        setConfig(prev => ({
+            ...prev,
+            characters: prev.characters.map(c => c.id === activeCharId ? { ...c, flipped: !c.flipped } : c)
+        }));
+    };
+    
+    const partTypes: { key: 'hair' | 'hat' | 'face' | 'shirt' | 'pants', label: string }[] = [
         { key: 'shirt', label: 'Áo' },
         { key: 'pants', label: 'Quần' },
         { key: 'face', label: 'Mặt' },
@@ -456,9 +483,12 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
                     <button onClick={handleAddChar} className="bg-green-500 text-white text-sm px-4 py-2 rounded-lg font-medium">+ Thêm ({formatCurrency(CHARACTER_BASE_PRICE)})</button>
                 </div>
                 {activeCharacter && 
-                  <div className="mt-4 pt-4 border-t">
+                  <div className="mt-4 pt-4 border-t flex items-center justify-between">
                     <button onClick={() => setPrintDialogCharId(activeCharacter.id)} className="text-sm text-blue-600 hover:underline font-semibold">
-                      {activeCharacter.customPrintPrice ? `Đang chọn in yêu cầu (${formatCurrency(activeCharacter.customPrintPrice)}) - Thay đổi?` : 'Thêm tuỳ chọn in theo yêu cầu?'}
+                      {activeCharacter.customPrintPrice ? `In yêu cầu (${formatCurrency(activeCharacter.customPrintPrice)})` : 'Thêm in yêu cầu?'}
+                    </button>
+                    <button onClick={handleFlipChar} className="text-sm bg-gray-200 text-gray-800 px-3 py-1 rounded-md hover:bg-gray-300 font-semibold">
+                        Lật nhân vật
                     </button>
                   </div>
                 }
@@ -574,12 +604,12 @@ const Step4Summary: React.FC<{ totalPrice: number; priceBreakdown: {label: strin
                 </div>
             </div>
         </div>
-        <div className="mt-4 space-y-3">
-            <button onClick={onAddToCart} disabled={isSaving} className="w-full bg-pink-100 text-luvin-pink border border-luvin-pink font-bold py-3 rounded-lg text-base hover:bg-pink-200 transition-colors disabled:opacity-50 disabled:cursor-wait">
-                {isSaving ? 'Đang xử lý...' : 'Thêm vào giỏ hàng'}
-            </button>
+        <div className="mt-4 space-y-2">
             <button onClick={onBuyNow} disabled={isSaving} className="w-full bg-luvin-pink text-gray-800 font-bold py-3 rounded-lg text-base hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-wait">
                 {isSaving ? 'Đang xử lý...' : 'Mua ngay & Thanh toán'}
+            </button>
+            <button onClick={onAddToCart} disabled={isSaving} className="w-full bg-white border border-gray-300 text-gray-700 font-bold py-3 rounded-lg text-base hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-wait">
+                {isSaving ? '...' : 'Thêm vào giỏ hàng'}
             </button>
         </div>
     </div>
@@ -898,7 +928,7 @@ const BuilderPage: React.FC<{
     config: FrameConfig; 
     setConfig: React.Dispatch<React.SetStateAction<FrameConfig>>; 
     navigateTo: (p:Page) => void; 
-    onAddToCart: (config: FrameConfig) => void; 
+    onAddToCart: (config: FrameConfig, openCartPanel?: boolean) => void; 
     showToast: (message: string, type: 'success' | 'error') => void;
 }> = ({ config, setConfig, navigateTo, onAddToCart, showToast }) => {
   const [step, setStep] = useState(1);
@@ -907,29 +937,6 @@ const BuilderPage: React.FC<{
   const frameCaptureRef = useRef<HTMLDivElement>(null);
   const [previewWidth, setPreviewWidth] = useState(480);
   const [isSaving, setIsSaving] = useState(false);
-
-  const [isBottomBarVisible, setIsBottomBarVisible] = useState(true);
-  const scrollYRef = useRef(window.scrollY);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-      const isAtBottom = window.innerHeight + currentScrollY >= document.documentElement.scrollHeight - 20;
-      
-      // Hide bar when scrolling down, unless at the very bottom
-      if (currentScrollY > scrollYRef.current && currentScrollY > 150 && !isAtBottom) {
-        setIsBottomBarVisible(false);
-      } else {
-        // Show bar when scrolling up, at the top, or at the bottom
-        setIsBottomBarVisible(true);
-      }
-      scrollYRef.current = currentScrollY;
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
 
   useEffect(() => {
     const observer = new ResizeObserver(entries => {
@@ -1055,26 +1062,17 @@ const BuilderPage: React.FC<{
     });
   };
 
-  const handleAddToCart = async () => {
-      setIsSaving(true);
-      const imageUrl = await captureFrameAsImage();
-      setIsSaving(false);
-      if(imageUrl) {
-        onAddToCart({ ...config, previewImageUrl: imageUrl });
-      } else {
-        showToast('Đã có lỗi xảy ra khi thêm vào giỏ hàng. Vui lòng thử lại.', 'error');
-      }
-  };
-
-  const handleBuyNow = async () => {
+  const handleAddToCartWrapper = async (andCheckout: boolean) => {
     setIsSaving(true);
     const imageUrl = await captureFrameAsImage();
     setIsSaving(false);
-    if(imageUrl) {
-      onAddToCart({ ...config, previewImageUrl: imageUrl });
-      navigateTo('checkout');
+    if (imageUrl) {
+      onAddToCart({ ...config, previewImageUrl: imageUrl }, !andCheckout);
+      if (andCheckout) {
+        navigateTo('checkout');
+      }
     } else {
-      showToast('Đã có lỗi xảy ra. Vui lòng thử lại.', 'error');
+      showToast('Đã có lỗi xảy ra khi thêm vào giỏ hàng. Vui lòng thử lại.', 'error');
     }
   };
 
@@ -1083,7 +1081,14 @@ const BuilderPage: React.FC<{
       case 1: return <Step1Frame config={config} setConfig={setConfig} />;
       case 2: return <Step2BackgroundAndDecorations config={config} setConfig={setConfig} addText={addText} addCharm={addCharm} />;
       case 3: return <Step3Characters config={config} setConfig={setConfig} />;
-      case 4: return <Step4Summary totalPrice={totalPrice} priceBreakdown={priceBreakdown} frameName={FRAME_OPTIONS.find(f => f.id === config.frameId)?.name || ''} charCount={config.characters.length} onAddToCart={handleAddToCart} onBuyNow={handleBuyNow} isSaving={isSaving} />;
+      case 4: return <Step4Summary 
+        totalPrice={totalPrice} 
+        priceBreakdown={priceBreakdown} 
+        frameName={FRAME_OPTIONS.find(f => f.id === config.frameId)?.name || ''} 
+        charCount={config.characters.length} 
+        onAddToCart={() => handleAddToCartWrapper(false)} 
+        onBuyNow={() => handleAddToCartWrapper(true)}
+        isSaving={isSaving} />;
       default: return null;
     }
   };
@@ -1157,7 +1162,7 @@ const BuilderPage: React.FC<{
                   </div>
                 </>
               )}
-               <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-white shadow-top p-4 z-30 transition-transform duration-300 ease-in-out ${isBottomBarVisible ? 'translate-y-0' : 'translate-y-full'}`}>
+               <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white shadow-top p-4 z-30">
                      <div className="text-right font-bold text-base text-gray-800 mb-2">
                         Giá tạm tính: <span className="text-luvin-pink">{formatCurrency(totalPrice)}</span>
                       </div>
@@ -1313,750 +1318,304 @@ const CartPanel: React.FC<{
   );
 };
 
-interface AddressAPIResponse {
-    name: string;
-    code: number;
-    division_type: string;
-    codename: string;
-    province_code?: number;
-    districts?: AddressAPIResponse[];
-    wards?: AddressAPIResponse[];
-}
 
-const CheckoutPage: React.FC<{ cartItems: FrameConfig[]; allParts: Record<string, LegoPart>; onConfirmOrder: (details: OrderDetails) => void; }> = ({ cartItems, allParts, onConfirmOrder }) => {
-    const [customerName, setCustomerName] = useState('');
-    const [customerPhone, setCustomerPhone] = useState('');
-    const [customerEmail, setCustomerEmail] = useState('');
-    const [streetAddress, setStreetAddress] = useState('');
-    const [desiredDeliveryDate, setDesiredDeliveryDate] = useState('');
-    
-    const [provinces, setProvinces] = useState<AddressAPIResponse[]>([]);
-    const [districts, setDistricts] = useState<AddressAPIResponse[]>([]);
-    const [wards, setWards] = useState<AddressAPIResponse[]>([]);
+const CheckoutPage: React.FC<{
+  cartItems: FrameConfig[];
+  allParts: Record<string, LegoPart>;
+  onPlaceOrder: (order: Order) => void;
+}> = ({ cartItems, allParts, onPlaceOrder }) => {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [address, setAddress] = useState('');
+  const [notes, setNotes] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  
+  const [shippingOption, setShippingOption] = useState<'standard' | 'express' | 'bookship'>('standard');
+  const [addGiftBox, setAddGiftBox] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'deposit' | 'full'>('deposit');
+  
+  const GIFT_BOX_PRICE = 30000;
+  const SHIPPING_FEES = { standard: 25000, express: 45000, bookship: 0 };
 
-    const [selectedProvince, setSelectedProvince] = useState<{code: number, name: string} | null>(null);
-    const [selectedDistrict, setSelectedDistrict] = useState<{code: number, name: string} | null>(null);
-    const [selectedWard, setSelectedWard] = useState<{code: number, name: string} | null>(null);
+  const subtotal = useMemo(() => cartItems.reduce((total, item) => total + calculatePrice(item, allParts).totalPrice, 0), [cartItems, allParts]);
+  const shippingFee = SHIPPING_FEES[shippingOption];
+  const giftBoxFee = addGiftBox ? GIFT_BOX_PRICE : 0;
+  const totalPrice = subtotal + shippingFee + giftBoxFee;
+  const amountToPay = paymentMethod === 'deposit' ? totalPrice * 0.7 : totalPrice;
 
-    const [paymentMethod, setPaymentMethod] = useState<'deposit' | 'full'>('deposit');
-    const [isPackagingSelected, setIsPackagingSelected] = useState(false);
-    const [shippingMethod, setShippingMethod] = useState<'standard' | 'express' | 'book'>('standard');
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const orderId = `TL-${Date.now()}`;
+    onPlaceOrder({
+      id: orderId,
+      customer: { name, phone, email, address },
+      delivery: { date: deliveryDate, notes },
+      items: cartItems,
+      addGiftBox,
+      shipping: { method: shippingOption, fee: shippingFee },
+      payment: { method: paymentMethod },
+      totalPrice,
+      amountToPay,
+    });
+  };
 
-    // Fetch provinces
-    useEffect(() => {
-        const fetchProvinces = async () => {
-            try {
-                const response = await fetch('https://provinces.open-api.vn/api/p/');
-                const data: AddressAPIResponse[] = await response.json();
-                setProvinces(data);
-            } catch (error) {
-                console.error("Failed to fetch provinces:", error);
-            }
-        };
-        fetchProvinces();
-    }, []);
+  if (cartItems.length === 0) {
+      return <div className="text-center py-20">Giỏ hàng của bạn đang trống.</div>
+  }
 
-    // Fetch districts when province changes
-    useEffect(() => {
-        if (selectedProvince?.code) {
-            const fetchDistricts = async () => {
-                try {
-                    const response = await fetch(`https://provinces.open-api.vn/api/p/${selectedProvince.code}?depth=2`);
-                    const data: AddressAPIResponse = await response.json();
-                    setDistricts(data.districts || []);
-                } catch (error) {
-                    console.error("Failed to fetch districts:", error);
-                }
-            };
-            fetchDistricts();
-        } else {
-            setDistricts([]);
-        }
-    }, [selectedProvince]);
-
-    // Fetch wards when district changes
-    useEffect(() => {
-        if (selectedDistrict?.code) {
-            const fetchWards = async () => {
-                try {
-                    const response = await fetch(`https://provinces.open-api.vn/api/d/${selectedDistrict.code}?depth=2`);
-                    const data: AddressAPIResponse = await response.json();
-                    setWards(data.wards || []);
-                } catch (error) {
-                    console.error("Failed to fetch wards:", error);
-                }
-            };
-            fetchWards();
-        } else {
-            setWards([]);
-        }
-    }, [selectedDistrict]);
-    
-    const removeAccents = (str: string) => {
-        return str
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .replace(/đ/g, "d")
-            .replace(/Đ/g, "D");
-    };
-
-    const { subtotal, shippingCost, packagingFee, total, amountToPay } = useMemo(() => {
-        const subtotal = cartItems.reduce((total, item) => total + calculatePrice(item, allParts).totalPrice, 0);
-        const packagingFee = 30000;
-        const shippingCost = shippingMethod === 'standard' ? 25000 : shippingMethod === 'express' ? 45000 : 0;
-        const total = subtotal + (isPackagingSelected ? packagingFee : 0) + shippingCost;
-        const amountToPay = paymentMethod === 'full' ? total : total * 0.7;
-        return { subtotal, shippingCost, packagingFee, total, amountToPay };
-    }, [cartItems, allParts, shippingMethod, isPackagingSelected, paymentMethod]);
-
-    const handleProceedToConfirmation = (e: React.MouseEvent<HTMLButtonElement>) => {
-        e.preventDefault();
-        
-        if (!customerName.trim() || !customerPhone.trim() || !customerEmail.trim() || !desiredDeliveryDate.trim() || !streetAddress.trim() || !selectedProvince || !selectedDistrict || !selectedWard) {
-            alert('Vui lòng điền đầy đủ thông tin có dấu (*).');
-            return;
-        }
-
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(customerEmail)) {
-            alert('Vui lòng nhập một địa chỉ email hợp lệ.');
-            return;
-        }
-        
-        const formattedNameNoAccents = removeAccents(customerName.trim()).toUpperCase();
-        // Use a more unique Order ID format
-        const timestamp = Date.now().toString().slice(-4);
-        const randomPart = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-        const orderId = `#TL${timestamp}${randomPart}`;
-
-        const fullAddress = `${streetAddress}, ${selectedWard.name}, ${selectedDistrict.name}, ${selectedProvince.name}`;
-
-        const BANK_ID = '970407'; // Techcombank
-        const ACCOUNT_NO = '65838666666';
-        const ACCOUNT_NAME = 'THE LUVIN'; 
-        const QR_TEMPLATE = 'compact2';
-        
-        const amount = Math.round(amountToPay);
-        const description = orderId.replace('#', '');
-        const vietQRUrl = `https://img.vietqr.io/image/${BANK_ID}-${ACCOUNT_NO}-${QR_TEMPLATE}.png?amount=${amount}&addInfo=${encodeURIComponent(description)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
-        
-        const orderDetails: OrderDetails = {
-            orderId,
-            customer: { name: customerName, phone: customerPhone, email: customerEmail, address: fullAddress },
-            items: cartItems,
-            pricing: {
-                subtotal,
-                packagingFee: isPackagingSelected ? packagingFee : 0,
-                shippingCost,
-                total: total,
-                paid: amountToPay,
-                remaining: total - amountToPay,
-            },
-            paymentMethod: paymentMethod === 'deposit' ? 'Cọc 70%' : 'Thanh toán toàn bộ',
-            shippingMethod,
-            notes: '', // Notes field removed from UI
-            vietQRUrl,
-            transferContent: description,
-            desiredDeliveryDate,
-        };
-
-        onConfirmOrder(orderDetails);
-    };
-
-    const formInputClasses = "w-full p-2.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-luvin-pink focus:border-luvin-pink";
-    const formSelectClasses = "w-full p-2.5 border border-gray-300 rounded-md bg-white focus:ring-1 focus:ring-luvin-pink focus:border-luvin-pink";
-    const formLabelClasses = "block text-sm font-medium mb-1 text-gray-700";
-
-    return (
-        <div className="bg-gray-50 font-body">
-            <div className="container mx-auto px-4 sm:px-6 py-8 lg:py-12">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                    
-                    {/* Left Column: Form */}
-                    <div className="lg:col-span-7 space-y-6">
-                        <div className="bg-white p-6 rounded-lg border border-gray-200">
-                           <h2 className="text-xl font-bold mb-4">Thông tin thanh toán</h2>
-                           <div className="space-y-4">
-                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                   <div>
-                                       <label className={formLabelClasses}>Họ và tên <span className="text-red-500">*</span></label>
-                                       <input type="text" placeholder="Nhập Họ và tên" className={formInputClasses} required 
-                                           value={customerName}
-                                           onChange={e => setCustomerName(e.target.value)}
-                                       />
-                                   </div>
-                                   <div>
-                                       <label className={formLabelClasses}>Số điện thoại <span className="text-red-500">*</span></label>
-                                       <input type="tel" placeholder="Nhập SĐT" className={formInputClasses} required 
-                                           value={customerPhone}
-                                           onChange={e => setCustomerPhone(e.target.value)}
-                                       />
-                                   </div>
-                               </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                   <div>
-                                       <label className={formLabelClasses}>Tỉnh/Thành phố <span className="text-red-500">*</span></label>
-                                       <select 
-                                           className={formSelectClasses}
-                                           value={selectedProvince?.code || ''}
-                                           onChange={(e) => {
-                                               const code = parseInt(e.target.value);
-                                               const name = provinces.find(p => p.code === code)?.name || '';
-                                               setSelectedProvince({code, name});
-                                               setSelectedDistrict(null);
-                                               setWards([]);
-                                               setSelectedWard(null);
-                                           }}
-                                           required
-                                       >
-                                           <option value="" disabled>Chọn Tỉnh/Thành phố</option>
-                                           {provinces.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
-                                       </select>
-                                   </div>
-                                   <div>
-                                       <label className={formLabelClasses}>Quận/Huyện <span className="text-red-500">*</span></label>
-                                       <select 
-                                           className={formSelectClasses}
-                                           value={selectedDistrict?.code || ''}
-                                           onChange={(e) => {
-                                               const code = parseInt(e.target.value);
-                                               const name = districts.find(d => d.code === code)?.name || '';
-                                               setSelectedDistrict({code, name});
-                                               setWards([]);
-                                               setSelectedWard(null);
-                                           }}
-                                           disabled={!selectedProvince}
-                                           required
-                                       >
-                                           <option value="" disabled>Chọn Quận/Huyện</option>
-                                           {districts.map(d => <option key={d.code} value={d.code}>{d.name}</option>)}
-                                       </select>
-                                   </div>
-                               </div>
-                               <div>
-                                    <label className={formLabelClasses}>Phường/Xã <span className="text-red-500">*</span></label>
-                                    <select 
-                                       className={formSelectClasses}
-                                       value={selectedWard?.code || ''}
-                                       onChange={(e) => {
-                                           const code = parseInt(e.target.value);
-                                           const name = wards.find(w => w.code === code)?.name || '';
-                                           setSelectedWard({code, name});
-                                       }}
-                                       disabled={!selectedDistrict}
-                                       required
-                                    >
-                                       <option value="" disabled>Chọn Phường/Xã</option>
-                                       {wards.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}
-                                    </select>
-                               </div>
-                               <div>
-                                   <label className={formLabelClasses}>Địa chỉ cụ thể <span className="text-red-500">*</span></label>
-                                   <input type="text" placeholder="Số nhà, tên đường..." className={formInputClasses} required 
-                                    value={streetAddress}
-                                    onChange={(e) => setStreetAddress(e.target.value)}
-                                   />
-                               </div>
-                               <div>
-                                   <label className={formLabelClasses}>Địa chỉ Email <span className="text-red-500">*</span></label>
-                                   <input type="email" placeholder="Để nhận thông tin đơn hàng" className={formInputClasses} required value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} />
-                               </div>
-                               <div>
-                                   <label className={formLabelClasses}>Ngày nhận hàng mong muốn <span className="text-red-500">*</span></label>
-                                   <input 
-                                    type="date" 
-                                    className={formInputClasses} 
-                                    value={desiredDeliveryDate}
-                                    onChange={(e) => setDesiredDeliveryDate(e.target.value)}
-                                    min={new Date().toISOString().split('T')[0]}
-                                    required
-                                   />
-                               </div>
-                           </div>
-                        </div>
-
-                        <div className="bg-white p-6 rounded-lg border border-gray-200">
-                           <h3 className="text-lg font-semibold mb-3">Phương thức vận chuyển</h3>
-                           <div className="space-y-3">
-                             <label className="flex items-center gap-3 p-3 border rounded-md cursor-pointer hover:bg-gray-50">
-                               <input type="radio" name="shipping" checked={shippingMethod === 'standard'} onChange={() => setShippingMethod('standard')} className="w-4 h-4 text-luvin-pink focus:ring-luvin-pink" />
-                               <div className="flex-grow">
-                                 <p className="font-medium text-sm">Giao hàng thường</p>
-                                 <p className="text-xs text-gray-500">Nhận hàng sau 2-4 ngày</p>
-                               </div>
-                               <p className="text-sm font-semibold">{formatCurrency(25000)}</p>
-                             </label>
-                             <label className="flex items-center gap-3 p-3 border rounded-md cursor-pointer hover:bg-gray-50">
-                               <input type="radio" name="shipping" checked={shippingMethod === 'express'} onChange={() => setShippingMethod('express')} className="w-4 h-4 text-luvin-pink focus:ring-luvin-pink" />
-                               <div className="flex-grow">
-                                 <p className="font-medium text-sm">Giao hàng nhanh</p>
-                                 <p className="text-xs text-gray-500">Nhận hàng trong ngày (nội thành)</p>
-                               </div>
-                               <p className="text-sm font-semibold">{formatCurrency(45000)}</p>
-                             </label>
-                             <label className="flex items-center gap-3 p-3 border rounded-md cursor-pointer hover:bg-gray-50">
-                               <input type="radio" name="shipping" checked={shippingMethod === 'book'} onChange={() => setShippingMethod('book')} className="w-4 h-4 text-luvin-pink focus:ring-luvin-pink" />
-                               <div className="flex-grow">
-                                 <p className="font-medium text-sm">Book ship (Grab/Ahamove)</p>
-                                 <p className="text-xs text-gray-500">Vui lòng liên hệ shop để được hỗ trợ</p>
-                               </div>
-                               <p className="text-sm font-semibold">Tự thỏa thuận</p>
-                             </label>
-                           </div>
-                        </div>
-
-                        <div className="bg-white p-6 rounded-lg border border-gray-200">
-                           <h3 className="text-lg font-semibold mb-3">Hộp quà tặng</h3>
-                           <div className="bg-gray-50 p-3 flex items-center justify-between rounded-md border">
-                               <div className="flex items-center gap-3">
-                                   <img src={GENERAL_ASSETS.giftbox} alt="gift box" className="w-16 h-16 rounded object-cover"/>
-                                   <div>
-                                       <p className="font-semibold text-sm">Gói quà chuyên nghiệp</p>
-                                       <p className="text-xs text-gray-500">Bao gồm hộp, nơ, và thiệp</p>
-                                   </div>
-                               </div>
-                               <div className="flex items-center gap-4">
-                                  <p className="font-semibold text-sm">{formatCurrency(30000)}</p>
-                                  <input 
-                                    type="checkbox" 
-                                    className="h-5 w-5 rounded text-luvin-pink focus:ring-luvin-pink"
-                                    checked={isPackagingSelected}
-                                    onChange={(e) => setIsPackagingSelected(e.target.checked)}
-                                   />
-                               </div>
-                           </div>
-                        </div>
-                    </div>
-                    
-                    {/* Right Column: Summary */}
-                    <div className="lg:col-span-5">
-                       <div className="lg:sticky lg:top-24 bg-white p-6 rounded-lg border border-gray-200">
-                          <h2 className="text-xl font-bold mb-4 border-b pb-3">Đơn hàng của bạn</h2>
-                          
-                          <div className="space-y-3 max-h-48 overflow-y-auto pr-2 mb-4">
-                              {cartItems.map((item, index) => {
-                                  const frame = FRAME_OPTIONS.find(f => f.id === item.frameId) || FRAME_OPTIONS[0];
-                                  return (
-                                      <div key={index} className="flex justify-between items-center text-sm">
-                                          <div className="flex items-center gap-3">
-                                              {item.previewImageUrl && <img src={item.previewImageUrl} alt="Preview" className="w-12 h-12 rounded object-contain bg-gray-100 p-0.5" />}
-                                              <p>Khung tùy chỉnh x 1</p>
-                                          </div>
-                                      </div>
-                                  );
-                              })}
-                          </div>
-
-                          <div className="space-y-2 py-4 border-t">
-                             <div className="flex justify-between text-sm"><p>Tạm tính:</p><p className="font-medium">{formatCurrency(subtotal)}</p></div>
-                             {isPackagingSelected && <div className="flex justify-between text-sm"><p>Hộp quà:</p><p className="font-medium">{formatCurrency(packagingFee)}</p></div>}
-                             <div className="flex justify-between text-sm"><p>Phí vận chuyển:</p><p className="font-medium">{shippingMethod === 'book' ? 'Tự thỏa thuận' : formatCurrency(shippingCost)}</p></div>
-                          </div>
-
-                          <div className="py-4 border-t">
-                             <h4 className="font-semibold mb-3">Phương thức thanh toán</h4>
-                             <div className="space-y-3">
-                                 <label className={`flex items-center gap-3 p-3 border rounded-md cursor-pointer hover:bg-gray-50 ${paymentMethod === 'deposit' ? 'bg-pink-50 border-luvin-pink' : ''}`}>
-                                     <input type="radio" name="payment" checked={paymentMethod === 'deposit'} onChange={() => setPaymentMethod('deposit')} className="w-4 h-4 text-luvin-pink focus:ring-luvin-pink" />
-                                     <p className="font-medium text-sm">Chuyển khoản cọc 70%</p>
-                                 </label>
-                                 <label className={`flex items-center gap-3 p-3 border rounded-md cursor-pointer hover:bg-gray-50 ${paymentMethod === 'full' ? 'bg-pink-50 border-luvin-pink' : ''}`}>
-                                     <input type="radio" name="payment" checked={paymentMethod === 'full'} onChange={() => setPaymentMethod('full')} className="w-4 h-4 text-luvin-pink focus:ring-luvin-pink"/>
-                                     <p className="font-medium text-sm">Chuyển khoản toàn bộ</p>
-                                 </label>
-                             </div>
-                          </div>
-
-                          <div className="border-t mt-4 pt-4 space-y-2">
-                            <div className="flex justify-between text-base font-semibold">
-                                <p>Tổng cộng:</p>
-                                <p>{formatCurrency(total)}</p>
-                            </div>
-                            <div className="flex justify-between text-lg font-bold text-luvin-pink items-center">
-                                <p>Cần thanh toán:</p>
-                                <p className="text-xl">{formatCurrency(amountToPay)}</p>
-                            </div>
-                          </div>
-
-                           <button onClick={handleProceedToConfirmation} className="w-full bg-luvin-pink text-gray-800 font-bold py-3 rounded-md mt-4 hover:opacity-90 uppercase tracking-wider text-base">
-                               Đặt hàng
-                           </button>
-                       </div>
-                    </div>
-
-                </div>
+  return (
+    <div className="bg-white">
+      <form onSubmit={handleSubmit} className="container mx-auto px-4 sm:px-6 py-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Thông tin thanh toán</h1>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
+          <div className="lg:col-span-7 space-y-6">
+            <div className="bg-gray-50 p-4 rounded-lg border">
+              <h2 className="font-bold text-lg mb-4">Thông tin người nhận</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input type="text" placeholder="Họ và tên" value={name} onChange={e => setName(e.target.value)} className="w-full p-2 border rounded" required />
+                <input type="tel" placeholder="Số điện thoại" value={phone} onChange={e => setPhone(e.target.value)} className="w-full p-2 border rounded" required />
+                <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-2 border rounded md:col-span-2" required />
+              </div>
             </div>
-        </div>
-    );
-}
-
-const OrderConfirmationPage: React.FC<{ details: OrderDetails; allParts: Record<string, LegoPart>; }> = ({ details, allParts }) => {
-
-    useEffect(() => {
-        const sendEmail = async () => {
-            console.log("Attempting to send order confirmation email...");
-            try {
-                console.log("===== DEVELOPMENT: SIMULATING EMAIL PAYLOAD =====");
-                console.log("This data WOULD BE SENT to your backend at /api/send-email:");
-                console.log(JSON.stringify(details, null, 2));
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                console.log("Simulation complete. In a real app, the email would now be sent.");
-            } catch (error) {
-                console.error("Failed to send order confirmation email:", error);
-            }
-        };
-
-        if (details.customer.email) {
-          sendEmail();
-        }
-    }, [details]);
-    
-    return (
-        <div className="bg-gray-50">
-            <div className="container mx-auto px-4 sm:px-6 py-8">
-                <div className="max-w-2xl mx-auto bg-white p-6 sm:p-8 rounded-lg border text-center">
-                    <h1 className="text-3xl font-bold text-luvin-pink mb-2">Đơn hàng của bạn đã được ghi nhận!</h1>
-                    <p className="text-gray-600 mb-4">Cảm ơn bạn đã đặt hàng. Vui lòng hoàn tất thanh toán để chúng tôi xử lý đơn hàng của bạn.</p>
-                    <p className="font-semibold">Mã đơn hàng của bạn là: <span className="font-bold text-luvin-pink font-mono">{details.orderId}</span></p>
-
-                    <div className="mt-6 border rounded-md p-4 text-center">
-                        <p className="font-semibold text-sm">Quét mã QR để thanh toán</p>
-                        <img src={details.vietQRUrl} alt="VietQR Code for payment" className="mx-auto my-2 w-64 h-64" />
-                        <div className="bg-gray-100 p-2 rounded-md text-xs">
-                            <p className="font-semibold">Nội dung chuyển khoản:</p>
-                            <p className="font-mono break-all font-bold text-base">{details.transferContent}</p>
-                        </div>
-                    </div>
-                    
-                    <div className="mt-6 border-t pt-6 text-left space-y-4">
-                        <h2 className="text-xl font-bold mb-3">Tóm tắt đơn hàng</h2>
-                        
-                        <div className="space-y-3 max-h-60 overflow-y-auto pr-2 border-b pb-4">
-                             {details.items.map((item, index) => {
-                                const { totalPrice } = calculatePrice(item, allParts);
-                                return (
-                                     <div key={index} className="flex justify-between items-center text-sm">
-                                         <div className="flex items-center gap-3">
-                                             {item.previewImageUrl && <img src={item.previewImageUrl} alt="Preview" className="w-12 h-12 rounded object-contain bg-gray-100 p-0.5" />}
-                                             <p>{`Khung tùy chỉnh`} <span className="text-gray-500">&times; 1</span></p>
-                                         </div>
-                                         <p className="font-medium flex-shrink-0 ml-2">{formatCurrency(totalPrice)}</p>
-                                     </div>
-                                 );
-                             })}
-                        </div>
-
-                        <div className="space-y-2 text-sm">
-                           <div className="flex justify-between"><p>Tạm tính:</p><p className="font-medium">{formatCurrency(details.pricing.subtotal)}</p></div>
-                           {details.pricing.packagingFee > 0 && <div className="flex justify-between"><p>Hộp quà:</p><p className="font-medium">{formatCurrency(details.pricing.packagingFee)}</p></div>}
-                           <div className="flex justify-between"><p>Phí vận chuyển:</p><p className="font-medium">{details.shippingMethod === 'book' ? 'Tự thỏa thuận' : formatCurrency(details.pricing.shippingCost)}</p></div>
-                        </div>
-
-                        <div className="border-t mt-4 pt-4 space-y-2">
-                          <div className="flex justify-between text-base font-bold text-gray-800">
-                              <p>Tổng cộng:</p>
-                              <p>{formatCurrency(details.pricing.total)}</p>
-                          </div>
-                          <div className="flex justify-between text-xl font-bold text-luvin-pink">
-                              <p>Cần thanh toán:</p>
-                              <p>{formatCurrency(details.pricing.paid)}</p>
-                          </div>
-                          {details.pricing.remaining > 0 && 
-                            <div className="flex justify-between text-sm text-gray-600">
-                                <p>Còn lại (thanh toán khi nhận hàng):</p>
-                                <p className="font-medium">{formatCurrency(details.pricing.remaining)}</p>
-                            </div>
-                          }
-                        </div>
-                        
-                        <div className="border-t mt-4 pt-4 text-sm space-y-1 text-gray-700">
-                            <p><strong>Giao đến:</strong> {details.customer.name}</p>
-                            <p><strong>Địa chỉ:</strong> {details.customer.address}</p>
-                            <p><strong>SĐT:</strong> {details.customer.phone}</p>
-                            {details.desiredDeliveryDate && (
-                                <p><strong>Ngày nhận mong muốn:</strong> {new Date(details.desiredDeliveryDate).toLocaleDateString('vi-VN')}</p>
-                            )}
-                        </div>
-
+            <div className="bg-gray-50 p-4 rounded-lg border">
+              <h2 className="font-bold text-lg mb-4">Địa chỉ & Giao hàng</h2>
+              <div className="space-y-4">
+                <textarea placeholder="Địa chỉ chi tiết (số nhà, tên đường, phường/xã, quận/huyện, tỉnh/thành phố)" value={address} onChange={e => setAddress(e.target.value)} rows={3} className="w-full p-2 border rounded" required></textarea>
+                <div>
+                  <label className="text-sm font-semibold text-gray-700">Ngày nhận hàng mong muốn</label>
+                  <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="w-full p-2 border rounded mt-1" required min={new Date().toISOString().split("T")[0]} />
+                </div>
+                <div>
+                    <h3 className="font-semibold text-sm mb-2 text-gray-700">Phương thức vận chuyển</h3>
+                    <div className="space-y-2">
+                        <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
+                            <input type="radio" name="shipping" value="standard" checked={shippingOption === 'standard'} onChange={() => setShippingOption('standard')} className="h-4 w-4"/>
+                            <span className="ml-2 text-sm flex-grow">Giao hàng thường</span>
+                            <span className="text-sm font-semibold">{formatCurrency(SHIPPING_FEES.standard)}</span>
+                        </label>
+                         <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
+                            <input type="radio" name="shipping" value="express" checked={shippingOption === 'express'} onChange={() => setShippingOption('express')} className="h-4 w-4"/>
+                            <span className="ml-2 text-sm flex-grow">Giao hàng nhanh</span>
+                             <span className="text-sm font-semibold">{formatCurrency(SHIPPING_FEES.express)}</span>
+                        </label>
+                         <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
+                            <input type="radio" name="shipping" value="bookship" checked={shippingOption === 'bookship'} onChange={() => setShippingOption('bookship')} className="h-4 w-4"/>
+                            <span className="ml-2 text-sm flex-grow">Tự book ship / Qua lấy</span>
+                             <span className="text-sm font-semibold">Tự thỏa thuận</span>
+                        </label>
                     </div>
                 </div>
+              </div>
             </div>
-        </div>
-    );
-}
-
-const OrderLookupPage: React.FC<{ allOrders: Record<string, StoredOrder> }> = ({ allOrders }) => {
-    const [orderId, setOrderId] = useState('');
-    const [result, setResult] = useState<StoredOrder | null | string>(null);
-
-    const handleLookup = (e: React.FormEvent) => {
-        e.preventDefault();
-        const foundOrder = allOrders[orderId];
-        if (foundOrder) {
-            setResult(foundOrder);
-        } else {
-            setResult('Không tìm thấy đơn hàng với mã này.');
-        }
-    };
-
-    const StatusTimeline: React.FC<{ currentStatus: OrderStatus }> = ({ currentStatus }) => {
-        const statuses: OrderStatus[] = ['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng'];
-        const currentIndex = statuses.indexOf(currentStatus);
-
-        return (
-            <div className="flex items-center justify-between text-xs text-center my-8">
-                {statuses.map((status, index) => {
-                    const isCompleted = index < currentIndex;
-                    const isActive = index === currentIndex;
-                    return (
-                        <React.Fragment key={status}>
-                            <div className="flex flex-col items-center">
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-                                    isCompleted ? 'bg-green-500 border-green-500 text-white' : 
-                                    isActive ? 'border-luvin-pink bg-pink-100' : 'border-gray-300 bg-gray-100'
-                                }`}>
-                                    {isCompleted ? '✓' : isActive ? <div className="w-3 h-3 bg-luvin-pink rounded-full animate-pulse"></div> : '...'}
-                                </div>
-                                <p className={`mt-2 font-semibold ${isActive ? 'text-luvin-pink' : 'text-gray-500'}`}>{status}</p>
-                            </div>
-                            {index < statuses.length - 1 && <div className={`flex-grow h-0.5 ${isCompleted ? 'bg-green-500' : 'bg-gray-300'}`}></div>}
-                        </React.Fragment>
-                    );
+            <div className="bg-gray-50 p-4 rounded-lg border">
+              <h2 className="font-bold text-lg mb-4">Ghi chú cho đơn hàng</h2>
+              <textarea placeholder="Ví dụ: Giao hàng trong giờ hành chính,..." value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full p-2 border rounded"></textarea>
+            </div>
+            <div className="bg-gray-50 p-4 rounded-lg border">
+                 <label className="flex items-center p-3 rounded-lg bg-white cursor-pointer has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50 border">
+                    <img src={GENERAL_ASSETS.giftbox} alt="Gift Box" className="w-12 h-12 object-contain mr-4"/>
+                    <div className="flex-grow">
+                        <span className="font-semibold text-gray-800">Thêm hộp quà</span>
+                        <p className="text-xs text-gray-500">Hộp quà cao cấp & thiệp viết tay.</p>
+                    </div>
+                    <span className="font-bold text-luvin-pink mr-4">+{formatCurrency(GIFT_BOX_PRICE)}</span>
+                    <input type="checkbox" checked={addGiftBox} onChange={e => setAddGiftBox(e.target.checked)} className="h-5 w-5 rounded"/>
+                </label>
+            </div>
+          </div>
+          <div className="lg:col-span-5">
+            <div className="bg-gray-50 p-4 rounded-lg border sticky top-24">
+              <h2 className="font-bold text-lg mb-4 border-b pb-2">Đơn hàng của bạn</h2>
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                {cartItems.map((item, index) => {
+                  const { totalPrice } = calculatePrice(item, allParts);
+                  return (
+                    <div key={index} className="flex justify-between items-center text-sm">
+                      <div className="flex items-center gap-2">
+                        <img src={item.previewImageUrl} className="w-10 h-10 object-contain bg-white border rounded" alt="preview" />
+                        <span>Khung tùy chỉnh</span>
+                      </div>
+                      <span>{formatCurrency(totalPrice)}</span>
+                    </div>
+                  )
                 })}
-            </div>
-        );
-    };
-
-    return (
-        <div className="container mx-auto px-6 py-8 max-w-3xl font-body">
-            <h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Tra cứu đơn hàng</h1>
-            <form onSubmit={handleLookup} className="bg-white p-6 rounded-lg shadow-md flex flex-col sm:flex-row gap-4">
-                <input
-                    type="text"
-                    value={orderId}
-                    onChange={e => setOrderId(e.target.value)}
-                    placeholder="Nhập mã đơn hàng (vd: #TL1234)"
-                    className="flex-grow p-3 border border-pink-200 rounded-lg focus:ring-2 focus:ring-luvin-pink"
-                />
-                <button type="submit" className="bg-luvin-pink text-gray-800 font-bold py-3 px-6 rounded-lg hover:opacity-90 transition-colors">
-                    Tra cứu
-                </button>
-            </form>
-
-            {result && (
-                <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
-                    {typeof result === 'string' ? (
-                        <p className="text-center text-red-700">{result}</p>
-                    ) : (
-                        <div>
-                            <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b pb-4 mb-4">
-                                <div>
-                                    <h2 className="text-xl font-bold text-luvin-pink">Chi tiết đơn hàng</h2>
-                                    <p className="font-mono text-gray-700">{result.details.orderId}</p>
-                                </div>
-                                <div className="mt-2 sm:mt-0 px-3 py-1 rounded-full text-sm font-semibold bg-pink-100 text-luvin-pink">
-                                    {result.status}
-                                </div>
-                            </div>
-
-                            <StatusTimeline currentStatus={result.status} />
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <h3 className="font-semibold text-gray-800 mb-2">Thông tin giao hàng</h3>
-                                    <div className="text-sm text-gray-600 space-y-1">
-                                        <p><strong>Họ tên:</strong> {result.details.customer.name}</p>
-                                        <p><strong>SĐT:</strong> {result.details.customer.phone}</p>
-                                        <p><strong>Địa chỉ:</strong> {result.details.customer.address}</p>
-                                    </div>
-                                </div>
-                                <div>
-                                    <h3 className="font-semibold text-gray-800 mb-2">Tóm tắt thanh toán</h3>
-                                    <div className="text-sm text-gray-600 space-y-1">
-                                        <p><strong>Tổng cộng:</strong> {formatCurrency(result.details.pricing.total)}</p>
-                                        <p><strong>Đã thanh toán:</strong> {formatCurrency(result.details.pricing.paid)}</p>
-                                        <p><strong>Còn lại:</strong> {formatCurrency(result.details.pricing.remaining)}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div className="mt-6 border-t pt-4">
-                                <h3 className="font-semibold text-gray-800 mb-3">Sản phẩm</h3>
-                                {result.details.items.map((item, index) => (
-                                    <div key={index} className="flex items-center gap-4 bg-gray-50 p-3 rounded-lg">
-                                        <div className="w-24 h-24 flex-shrink-0 bg-white rounded p-1 border">
-                                            <img src={item.previewImageUrl} alt="Preview" className="w-full h-full object-contain" />
-                                        </div>
-                                        <div>
-                                            <p className="font-semibold">Khung LEGO tùy chỉnh</p>
-                                            <p className="text-xs text-gray-500">Kích thước: {FRAME_OPTIONS.find(f => f.id === item.frameId)?.name}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+              </div>
+              <div className="border-t mt-4 pt-4 space-y-2 text-sm">
+                <div className="flex justify-between"><span>Tạm tính</span><span>{formatCurrency(subtotal)}</span></div>
+                {addGiftBox && <div className="flex justify-between"><span>Hộp quà</span><span>{formatCurrency(giftBoxFee)}</span></div>}
+                <div className="flex justify-between"><span>Phí vận chuyển</span><span>{shippingOption === 'bookship' ? 'Tự thỏa thuận' : formatCurrency(shippingFee)}</span></div>
+              </div>
+              <div className="border-t mt-4 pt-4 flex justify-between font-bold text-lg">
+                <span>Tổng cộng</span>
+                <span>{formatCurrency(totalPrice)}</span>
+              </div>
+              <div className="border-t mt-4 pt-4">
+                <h3 className="font-semibold mb-2">Phương thức thanh toán</h3>
+                <div className="space-y-2">
+                  <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
+                    <input type="radio" name="payment" value="deposit" checked={paymentMethod === 'deposit'} onChange={() => setPaymentMethod('deposit')} className="h-4 w-4" />
+                    <label htmlFor="deposit" className="ml-2 text-sm">Chuyển khoản cọc 70%</label>
+                  </label>
+                  <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
+                    <input type="radio" name="payment" value="full" checked={paymentMethod === 'full'} onChange={() => setPaymentMethod('full')} className="h-4 w-4" />
+                    <label htmlFor="full" className="ml-2 text-sm">Chuyển khoản toàn bộ</label>
+                  </label>
                 </div>
-            )}
+              </div>
+              <button type="submit" className="w-full mt-4 bg-luvin-pink text-gray-800 font-bold py-3 rounded-lg hover:opacity-90">
+                ĐẶT HÀNG
+              </button>
+            </div>
+          </div>
         </div>
-    );
+      </form>
+    </div>
+  );
 };
 
-
-const ContactPage: React.FC = () => {
-    return ( <div className="container mx-auto px-6 py-8"><h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Liên hệ The Luvin</h1><div className="bg-white p-8 rounded-lg shadow-lg max-w-3xl mx-auto text-center font-body"><p className="text-lg text-gray-700 mb-6">Chúng tôi luôn sẵn lòng lắng nghe và hỗ trợ bạn. Đừng ngần ngại liên hệ với The Luvin qua các kênh dưới đây.</p><div className="space-y-4 text-left inline-block text-base sm:text-lg"><p className="flex items-center"><span className="font-bold w-24">Địa chỉ:</span> 123 Phố Hàng Bông, Hoàn Kiếm, Hà Nội</p><p className="flex items-center"><span className="font-bold w-24">Hotline:</span> 0987 654 321</p><p className="flex items-center"><span className="font-bold w-24">Email:</span> hello@theluvin.com</p></div><div className="flex justify-center space-x-4 sm:space-x-6 mt-8"><a href="#" className="bg-blue-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-blue-600 transition-colors">Zalo</a><a href="#" className="bg-purple-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-purple-600 transition-colors">Messenger</a><a href="#" className="bg-pink-500 text-white font-semibold py-2 px-4 sm:px-6 rounded-lg hover:bg-pink-600 transition-colors">Instagram</a></div></div></div> );
-}
-
-const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ message, type, onClose }) => {
+const OrderConfirmationPage: React.FC<{ order: Order | null, navigateTo: (page: Page) => void }> = ({ order, navigateTo }) => {
     useEffect(() => {
-        const timer = setTimeout(onClose, 3000);
-        return () => clearTimeout(timer);
-    }, [onClose]);
+        if (!order) {
+            navigateTo('home');
+        }
+    }, [order, navigateTo]);
+    
+    if (!order) return null;
 
     return (
-        <div className={`fixed top-5 right-5 z-[100] px-6 py-3 rounded-lg shadow-lg text-white ${type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
-            {message}
+        <div className="bg-white py-12">
+            <div className="container mx-auto px-4 sm:px-6 max-w-3xl">
+                <div className="text-center">
+                    <svg className="mx-auto h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <h1 className="mt-4 text-3xl font-extrabold text-gray-900">Đặt hàng thành công!</h1>
+                    <p className="mt-2 text-sm text-gray-500">
+                        Cảm ơn bạn đã đặt hàng. Một email xác nhận đã được gửi tới <span className="font-medium text-gray-700">{order.customer.email}</span>.
+                    </p>
+                    <p className="mt-2 text-base text-gray-700">Mã đơn hàng của bạn là: <span className="font-bold text-luvin-pink">{order.id}</span></p>
+                </div>
+                
+                <div className="mt-10 bg-gray-50 rounded-lg border p-6">
+                    <h2 className="font-bold text-lg mb-4 border-b pb-2">Thông tin thanh toán</h2>
+                    <p className="text-sm text-gray-600">Vui lòng chuyển khoản số tiền dưới đây để The Luvin xử lý đơn hàng của bạn:</p>
+                    <div className="text-center my-6">
+                        <p className="text-4xl font-bold text-luvin-pink">{formatCurrency(order.amountToPay)}</p>
+                        <p className="text-sm text-gray-500 mt-1">Nội dung chuyển khoản: <span className="font-semibold text-gray-800">{order.id}</span></p>
+                    </div>
+                    <img src={GENERAL_ASSETS.vietqr} alt="VietQR" className="mt-4 w-48 mx-auto" />
+                </div>
+
+                <div className="mt-8">
+                     <h2 className="font-bold text-lg mb-4">Tóm tắt đơn hàng</h2>
+                     <div className="bg-gray-50 rounded-lg border p-4 space-y-4">
+                        {order.items.map((item, index) => (
+                             <div key={index} className="flex gap-4">
+                                <img src={item.previewImageUrl} className="w-20 h-20 object-contain bg-white border rounded" alt="preview" />
+                                <div className="flex-grow">
+                                    <h3 className="text-sm font-semibold">Khung LEGO tùy chỉnh</h3>
+                                    <p className="text-xs text-gray-500">{FRAME_OPTIONS.find(f => f.id === item.frameId)?.name}</p>
+                                </div>
+                             </div>
+                        ))}
+                        <div className="border-t pt-4 text-sm space-y-1">
+                             <div className="flex justify-between"><span>Tổng cộng:</span><span className="font-semibold">{formatCurrency(order.totalPrice)}</span></div>
+                             <div className="flex justify-between text-luvin-pink"><span>Cần thanh toán:</span><span className="font-bold">{formatCurrency(order.amountToPay)}</span></div>
+                        </div>
+                     </div>
+                </div>
+
+                <div className="mt-8 text-center">
+                    <button onClick={() => navigateTo('home')} className="bg-luvin-pink text-gray-800 font-bold py-3 px-8 rounded-lg hover:opacity-90">
+                        Quay về trang chủ
+                    </button>
+                </div>
+            </div>
         </div>
-    );
+    )
 };
 
 
 const App: React.FC = () => {
-  const [page, setPage] = useState<Page>('home');
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+    const [currentPage, setCurrentPage] = useState<Page>('home');
+    const [config, setConfig] = useState<FrameConfig>(INITIAL_FRAME_CONFIG);
+    const [cartItems, setCartItems] = useState<FrameConfig[]>([]);
+    const [completedOrder, setCompletedOrder] = useState<Order | null>(null);
+    const [isCartOpen, setIsCartOpen] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  const [frameConfig, setFrameConfig] = useState<FrameConfig>(() => {
-    try {
-      const savedConfig = localStorage.getItem('luvinFrameConfig');
-      return savedConfig ? JSON.parse(savedConfig) : INITIAL_FRAME_CONFIG;
-    } catch (error) {
-      console.error("Failed to parse frameConfig from localStorage", error);
-      return INITIAL_FRAME_CONFIG;
-    }
-  });
+    const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>), []);
 
-  const [cartItems, setCartItems] = useState<FrameConfig[]>(() => {
-    try {
-      const savedCart = localStorage.getItem('luvinCartItems');
-      return savedCart ? JSON.parse(savedCart) : [];
-    } catch (error) {
-      console.error("Failed to parse cartItems from localStorage", error);
-      return [];
-    }
-  });
+    const showToast = (message: string, type: 'success' | 'error') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
+    };
 
-  const [allOrders, setAllOrders] = useState<Record<string, StoredOrder>>({});
-
-  const [isCartOpen, setIsCartOpen] = useState(false);
-  const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
-
-  useEffect(() => {
-    try {
-        const savedOrders = localStorage.getItem('luvinAllOrders');
-        if (savedOrders) {
-            setAllOrders(JSON.parse(savedOrders));
+    const handleAddToCart = (itemConfig: FrameConfig, openCartPanel = true) => {
+        setCartItems(prev => [...prev, itemConfig]);
+        showToast('Đã thêm vào giỏ hàng!', 'success');
+        if (openCartPanel) {
+            setIsCartOpen(true);
         }
-    } catch (error) {
-        console.error("Failed to load orders from localStorage", error);
-    }
-  }, []);
+    };
 
-  useEffect(() => {
-    try {
-        // Don't save preview image to localStorage as it can be large
-        const { previewImageUrl, ...configToSave } = frameConfig;
-        localStorage.setItem('luvinFrameConfig', JSON.stringify(configToSave));
-    } catch (error) {
-        console.error("Failed to save frameConfig to localStorage", error);
-    }
-  }, [frameConfig]);
+    const handleRemoveFromCart = (index: number) => {
+        setCartItems(prev => prev.filter((_, i) => i !== index));
+    };
 
-  useEffect(() => {
-    try {
-        localStorage.setItem('luvinCartItems', JSON.stringify(cartItems));
-    } catch (error) {
-        console.error("Failed to save cartItems to localStorage", error);
-    }
-  }, [cartItems]);
-
-  useEffect(() => {
-    try {
-        if (Object.keys(allOrders).length > 0) {
-            localStorage.setItem('luvinAllOrders', JSON.stringify(allOrders));
-        }
-    } catch (error) {
-        console.error("Failed to save orders to localStorage", error);
-    }
-  }, [allOrders]);
-
-  const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>), []);
-
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-      setToast({ message, type });
-  };
-
-  const handleAddToCart = (config: FrameConfig) => {
-      setCartItems(prev => [...prev, config]);
-      showToast('Đã thêm vào giỏ hàng!');
-  };
-
-  const handleRemoveFromCart = (indexToRemove: number) => {
-      setCartItems(prev => prev.filter((_, index) => index !== indexToRemove));
-  };
-
-  const navigateTo = useCallback((newPage: Page) => {
-    setPage(newPage);
-    window.scrollTo(0, 0);
-  }, []);
-
-  const handleConfirmOrder = (details: OrderDetails) => {
-      const newOrder: StoredOrder = {
-        status: 'Chờ thanh toán',
-        details: details,
-      };
-      setAllOrders(prev => ({
-        ...prev,
-        [details.orderId]: newOrder,
-      }));
-
-      setOrderDetails(details);
-      // Clear cart after order is placed
-      setCartItems([]);
+    const handlePlaceOrder = (order: Order) => {
+      setCompletedOrder(order);
+      setCartItems([]); // Clear cart after placing order
       navigateTo('order-confirmation');
-  };
-  
-  const renderCurrentPage = () => {
-    switch (page) {
-      case 'home': return <HomePage navigateTo={navigateTo} />;
-      case 'builder': return <BuilderPage config={frameConfig} setConfig={setFrameConfig} navigateTo={navigateTo} onAddToCart={handleAddToCart} showToast={showToast} />;
-      case 'collection': return <CollectionPage navigateTo={navigateTo} setConfig={setFrameConfig} />;
-      case 'cart': return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allParts={allParts} navigateTo={navigateTo} />;
-      case 'checkout': return <CheckoutPage cartItems={cartItems} allParts={allParts} onConfirmOrder={handleConfirmOrder} />;
-      case 'order-confirmation': return orderDetails ? <OrderConfirmationPage details={orderDetails} allParts={allParts} /> : <CheckoutPage cartItems={cartItems} allParts={allParts} onConfirmOrder={handleConfirmOrder} />;
-      case 'order-lookup': return <OrderLookupPage allOrders={allOrders} />;
-      case 'contact': return <ContactPage />;
-      default: return <HomePage navigateTo={navigateTo} />;
-    }
-  };
+    };
 
-  return (
-    <div className={`min-h-screen flex flex-col text-gray-800 bg-white`}>
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} />
-      <CartPanel 
-        isOpen={isCartOpen} 
-        onClose={() => setIsCartOpen(false)}
-        cartItems={cartItems}
-        onRemoveItem={handleRemoveFromCart}
-        allParts={allParts}
-        navigateTo={navigateTo}
-      />
-      <main className="flex-grow">
-        {renderCurrentPage()}
-      </main>
-      <Footer />
-    </div>
-  );
+    const navigateTo = (page: Page) => {
+        setCurrentPage(page);
+        window.scrollTo(0, 0);
+    };
+
+    const renderPage = () => {
+        switch (currentPage) {
+            case 'home':
+                return <HomePage navigateTo={navigateTo} />;
+            case 'builder':
+                return <BuilderPage config={config} setConfig={setConfig} navigateTo={navigateTo} onAddToCart={handleAddToCart} showToast={showToast} />;
+            case 'collection':
+                return <CollectionPage navigateTo={navigateTo} setConfig={setConfig} />;
+            case 'cart':
+                return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allParts={allParts} navigateTo={navigateTo} />;
+            case 'checkout':
+                return <CheckoutPage cartItems={cartItems} allParts={allParts} onPlaceOrder={handlePlaceOrder} />;
+            case 'order-confirmation':
+                return <OrderConfirmationPage order={completedOrder} navigateTo={navigateTo} />;
+            default:
+                return <HomePage navigateTo={navigateTo} />;
+        }
+    };
+
+    return (
+        <div className="flex flex-col min-h-screen font-body bg-gray-50">
+            <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} />
+            <main className="flex-grow">
+                {renderPage()}
+            </main>
+            <Footer />
+            <CartPanel 
+                isOpen={isCartOpen}
+                onClose={() => setIsCartOpen(false)}
+                cartItems={cartItems}
+                onRemoveItem={handleRemoveFromCart}
+                allParts={allParts}
+                navigateTo={navigateTo}
+            />
+             {toast && (
+                <div className={`fixed bottom-5 right-5 p-4 rounded-lg shadow-lg text-white ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+                    {toast.message}
+                </div>
+            )}
+        </div>
+    );
 };
 
 export default App;

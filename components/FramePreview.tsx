@@ -1,6 +1,6 @@
 // FIX: import useMemo from React
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import type { FrameConfig, LegoPart, TextConfig } from '../types';
+import type { FrameConfig, LegoCharacterConfig, LegoPart, TextConfig } from '../types';
 import { FRAME_OPTIONS, LEGO_PARTS } from '../constants';
 
 type Transform = {
@@ -21,64 +21,61 @@ interface FramePreviewProps {
   setSelectedItemId: (id: string | null) => void;
 }
 
-const LegoCharacter: React.FC<{ character: FrameConfig['characters'][0]; scale: number }> = ({ character, scale }) => {
-  const charWidth = 2.5 * scale;
-  const charHeight = 4.0 * scale;
-
-  const hair = character.hair;
-  const hat = character.hat;
-  const face = character.face;
-  const shirt = character.shirt;
-  const pants = character.pants;
-  
+const LegoCharacter: React.FC<{ character: LegoCharacterConfig; pxPerCm: number }> = ({ character, pxPerCm }) => {
+  const { hair, hat, face, shirt, pants, flipped } = character;
   const shirtImageUrl = character.selectedShirtColor?.imageUrl || shirt?.imageUrl;
   const pantsImageUrl = character.selectedPantsColor?.imageUrl || pants?.imageUrl;
+  const activeHeadwear = hat || hair;
 
+  // Per user request, the character is composed of 4 same-sized, stacked images.
+  // The container will have the final dimensions.
+  const CHARACTER_WIDTH_CM = 2.5;
+  const CHARACTER_HEIGHT_CM = 4.0;
+
+  const px = (cm: number) => Math.round(cm * pxPerCm);
+
+  const containerStyle: React.CSSProperties = {
+    position: 'relative',
+    width: px(CHARACTER_WIDTH_CM),
+    height: px(CHARACTER_HEIGHT_CM),
+    transform: flipped ? 'scaleX(-1)' : 'none',
+    transformOrigin: 'center',
+  };
+
+  // This style will be applied to all parts. They are layers filling the container.
   const partStyle: React.CSSProperties = {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
-      objectFit: 'contain',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain', // Use contain to respect aspect ratio of user's image
+    pointerEvents: 'none',
   };
 
   return (
-    <div className="relative flex-shrink-0" style={{ width: charWidth, height: charHeight }}>
-      {/* Layering order: Chân (pants) -> Áo (shirt) -> Đầu (face) -> Tóc (hair) -> Phụ kiện (hat) */}
-      {pants && pantsImageUrl &&
-        <img 
-          src={pantsImageUrl}
-          alt="pants" 
-          style={partStyle} 
-        />}
-      {shirt && shirtImageUrl &&
-        <img 
-          src={shirtImageUrl}
-          alt="shirt" 
-          style={partStyle}
-        />}
-      {face && 
-        <img 
-          src={face.imageUrl} 
-          alt="face" 
-          style={partStyle}
-        />}
-      {!hat && hair && 
-        <img 
-          src={hair.imageUrl} 
-          alt="hair" 
-          style={partStyle}
-        />}
-      {hat && 
-        <img 
-          src={hat.imageUrl} 
-          alt="hat" 
-          style={partStyle}
-        />}
+    <div style={containerStyle}>
+      {/* 
+        Each image is a full-size layer. The user must provide transparent PNGs 
+        where the part is correctly positioned within the 2.5cm x 4cm frame.
+        The stacking order is controlled by z-index.
+      */}
+      {pants && pantsImageUrl && (
+        <img src={pantsImageUrl} alt="pants" style={{ ...partStyle, zIndex: 1 }} />
+      )}
+      {shirt && shirtImageUrl && (
+        <img src={shirtImageUrl} alt="shirt" style={{ ...partStyle, zIndex: 2 }} />
+      )}
+      {face && face.imageUrl && (
+        <img src={face.imageUrl} alt="face" style={{ ...partStyle, zIndex: 3 }} />
+      )}
+      {activeHeadwear && activeHeadwear.imageUrl && (
+        <img src={activeHeadwear.imageUrl} alt={activeHeadwear.name} style={{ ...partStyle, zIndex: 4 }} />
+      )}
     </div>
   );
 };
+
 
 const getFontFamily = (fontName: string) => {
     switch (fontName) {
@@ -188,7 +185,8 @@ const Transformable: React.FC<{
     isResizable?: boolean;
     isRotatable?: boolean;
     isDraggable?: boolean;
-}> = ({ children, id, initialTransform, onTransform, parentRef, isSelected, onSelect, isResizable = true, isRotatable = true, isDraggable = true }) => {
+    zIndex?: number;
+}> = ({ children, id, initialTransform, onTransform, parentRef, isSelected, onSelect, isResizable = true, isRotatable = true, isDraggable = true, zIndex }) => {
     
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
         if (!isDraggable) return;
@@ -282,7 +280,8 @@ const Transformable: React.FC<{
                 touchAction: 'none',
                 cursor: isDraggable ? (isSelected ? 'move' : 'pointer') : 'default',
                 outline: isSelected && isDraggable ? '2px dashed #efa3b5' : 'none',
-                outlineOffset: '5px'
+                outlineOffset: '5px',
+                zIndex: zIndex
             }}
         >
             {children}
@@ -357,8 +356,6 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                     }
                 }}
             >
-                {/* FIX: Reordered elements for correct visual stacking (z-index). */}
-                {/* 1. Characters render first (at the bottom). */}
                 {config.characters.map(char => {
                     const id = `character-${char.id}`;
                     return (
@@ -366,13 +363,13 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                             key={id} id={id} initialTransform={char} onTransform={onItemTransform} 
                             parentRef={previewContainerRef} isSelected={selectedItemId === id} onSelect={setSelectedItemId}
                             isResizable={false} isRotatable={false} isDraggable={isInteractive}
+                            zIndex={5} // Base z-index for characters
                         >
-                           <LegoCharacter character={char} scale={pxPerCm} /> {/* Use the new consistent scale */}
+                           <LegoCharacter character={char} pxPerCm={pxPerCm} />
                         </Transformable>
                     );
                 })}
-
-                {/* 2. Draggable items (accessories, pets) render on top of characters. */}
+                
                 {config.draggableItems.map(item => {
                     const isCharm = item.type === 'charm';
                     const part = !isCharm ? allParts[item.partId] : null;
@@ -388,17 +385,18 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                         <Transformable 
                             key={id} id={id} initialTransform={item} onTransform={onItemTransform} 
                             parentRef={previewContainerRef} isSelected={selectedItemId === id} onSelect={setSelectedItemId}
-                            isResizable={false} 
+                            isResizable={isInteractive && !isCharm} 
                             isRotatable={isInteractive} 
                             isDraggable={isInteractive}
+                            zIndex={10} // Accessories are on top of characters
                         >
                             <img 
                               src={imageUrl} 
                               alt={name} 
                               className="pointer-events-none"
                               style={{
-                                  width: widthCm * pxPerCm, // Use the new consistent scale
-                                  height: heightCm * pxPerCm, // Use the new consistent scale
+                                  width: widthCm * pxPerCm,
+                                  height: heightCm * pxPerCm,
                                   objectFit: 'contain'
                               }}
                             />
@@ -406,7 +404,6 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                     );
                 })}
                 
-                {/* 3. Text renders last (on top of everything). */}
                 {config.texts.map(text => {
                     const id = `text-${text.id}`;
                     return (
@@ -415,10 +412,11 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                             onTransform={onItemTransform} parentRef={previewContainerRef} 
                             isSelected={selectedItemId === id} onSelect={setSelectedItemId}
                             isDraggable={isInteractive && !isCurrentlyEditingText}
+                            zIndex={15} // Text is on top of everything
                         >
                            <EditableText
                              text={text}
-                             scale={pxPerCm} // Use the new consistent scale
+                             scale={pxPerCm}
                              onUpdate={(updates) => onTextUpdate(text.id, updates)}
                              onBeginEditing={() => setIsCurrentlyEditingText(true)}
                              onEndEditing={() => setIsCurrentlyEditingText(false)}
@@ -426,6 +424,7 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                         </Transformable>
                     );
                 })}
+
             </div>
         </div>
     </div>

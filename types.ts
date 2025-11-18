@@ -28,10 +28,16 @@ export interface LegoPart {
   price: number; // Base price (for default color)
   imageUrl: string;
   type: 'hair' | 'face' | 'shirt' | 'pants' | 'accessory' | 'pet' | 'hat';
-  widthCm?: number;
-  heightCm?: number;
+  widthCm: number;
+  heightCm: number;
   colors?: OutfitColor[];
+  // New metadata for precise hair positioning
+  attach?: { x: number; y: number }; // Attachment point within the image (0-1 scale)
+  slices?: boolean; // Does the hair have a back/front part?
+  dx?: number; // Fine-tuning offset in cm
+  dy?: number; // Fine-tuning offset in cm
 }
+
 
 export interface LegoCharacterConfig {
   id: number;
@@ -47,6 +53,8 @@ export interface LegoCharacterConfig {
   y: number; // percentage from top
   rotation: number; // degrees
   scale: number; // multiplier
+  flipped?: boolean; // For horizontal flipping
+  previousHair?: LegoPart; // To restore hair when hat is removed
 }
 
 export interface TextConfig {
@@ -88,34 +96,27 @@ export interface FrameConfig {
   previewImageUrl?: string;
 }
 
-export interface OrderDetails {
-    orderId: string;
-    customer: {
-        name: string;
-        phone: string;
-        email: string;
-        address: string;
-    };
-    items: FrameConfig[];
-    pricing: {
-        subtotal: number;
-        packagingFee: number;
-        shippingCost: number;
-        total: number;
-        paid: number;
-        remaining: number;
-    };
-    paymentMethod: string;
-    shippingMethod: string;
+export interface Order {
+  id: string;
+  customer: {
+    name: string;
+    phone: string;
+    email: string;
+    address: string;
+  };
+  delivery: {
+    date: string;
     notes: string;
-    vietQRUrl: string;
-    transferContent: string;
-    desiredDeliveryDate?: string;
-}
-
-export type OrderStatus = 'Chờ thanh toán' | 'Đã xác nhận' | 'Đang xử lý' | 'Đang giao hàng' | 'Đã giao hàng' | 'Đã hủy';
-
-export interface StoredOrder {
-  status: OrderStatus;
-  details: OrderDetails;
+  };
+  items: FrameConfig[];
+  addGiftBox: boolean;
+  shipping: {
+    method: 'standard' | 'express' | 'bookship';
+    fee: number;
+  };
+  payment: {
+    method: 'deposit' | 'full';
+  };
+  totalPrice: number;
+  amountToPay: number;
 }
