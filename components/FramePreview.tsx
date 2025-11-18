@@ -190,7 +190,17 @@ const Transformable: React.FC<{
     containerSize?: { width: number; height: number; };
 }> = ({ children, id, initialTransform, onTransform, parentRef, isSelected, onSelect, isResizable = true, isRotatable = true, isDraggable = true, zIndex, style, isTextItem, containerSize }) => {
     
-    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const getClientCoords = (e: MouseEvent | TouchEvent): { x: number; y: number } | null => {
+      if ('touches' in e && e.touches.length > 0) {
+        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+      if ('clientX' in e) {
+        return { x: e.clientX, y: e.clientY };
+      }
+      return null;
+    };
+
+    const handleDragStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
         if (!isDraggable) return;
         e.preventDefault();
         e.stopPropagation();
@@ -199,12 +209,15 @@ const Transformable: React.FC<{
         const parentRect = parentRef.current?.getBoundingClientRect();
         if (!parentRect) return;
 
-        const startX = e.clientX;
-        const startY = e.clientY;
+        const startCoords = getClientCoords(e.nativeEvent);
+        if (!startCoords) return;
 
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-            const dx = moveEvent.clientX - startX;
-            const dy = moveEvent.clientY - startY;
+        const handleMove = (moveEvent: MouseEvent | TouchEvent) => {
+            const moveCoords = getClientCoords(moveEvent);
+            if (!moveCoords) return;
+
+            const dx = moveCoords.x - startCoords.x;
+            const dy = moveCoords.y - startCoords.y;
 
             const newX = ((initialTransform.x / 100) * parentRect.width + dx) / parentRect.width * 100;
             const newY = ((initialTransform.y / 100) * parentRect.height + dy) / parentRect.height * 100;
@@ -215,87 +228,117 @@ const Transformable: React.FC<{
                 y: Math.max(0, Math.min(100, newY)),
             });
         };
-        const handleMouseUp = () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+        const handleEnd = () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleEnd);
+            window.removeEventListener('touchmove', handleMove);
+            window.removeEventListener('touchend', handleEnd);
         };
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+        window.addEventListener('touchmove', handleMove);
+        window.addEventListener('touchend', handleEnd);
     };
 
-    const handleRotate = (e: React.MouseEvent<HTMLDivElement>) => {
+    const handleRotateStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
         const parentRect = parentRef.current?.getBoundingClientRect();
         if (!parentRect) return;
+        
+        const startCoords = getClientCoords(e.nativeEvent);
+        if(!startCoords) return;
 
         const centerX = parentRect.left + (initialTransform.x / 100) * parentRect.width;
         const centerY = parentRect.top + (initialTransform.y / 100) * parentRect.height;
         
-        const startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * 180 / Math.PI;
+        const startAngle = Math.atan2(startCoords.y - centerY, startCoords.x - centerX) * 180 / Math.PI;
         const startRotation = initialTransform.rotation;
 
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-            const currentAngle = Math.atan2(moveEvent.clientY - centerY, e.clientX - centerX) * 180 / Math.PI;
+        const handleMove = (moveEvent: MouseEvent | TouchEvent) => {
+            const moveCoords = getClientCoords(moveEvent);
+            if (!moveCoords) return;
+            const currentAngle = Math.atan2(moveCoords.y - centerY, moveCoords.x - centerX) * 180 / Math.PI;
             const deltaAngle = currentAngle - startAngle;
             onTransform(id, { ...initialTransform, rotation: startRotation + deltaAngle });
         };
-        const handleMouseUp = () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+        const handleEnd = () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleEnd);
+            window.removeEventListener('touchmove', handleMove);
+            window.removeEventListener('touchend', handleEnd);
         };
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+        window.addEventListener('touchmove', handleMove);
+        window.addEventListener('touchend', handleEnd);
     };
 
-     const handleResize = (e: React.MouseEvent<HTMLDivElement>) => {
+     const handleResizeStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
         const parentRect = parentRef.current?.getBoundingClientRect();
         if (!parentRect) return;
+        
+        const startCoords = getClientCoords(e.nativeEvent);
+        if (!startCoords) return;
 
-        const startX = e.clientX;
-        const startY = e.clientY;
         const startScale = initialTransform.scale;
         
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-             const dx = moveEvent.clientX - startX;
+        const handleMove = (moveEvent: MouseEvent | TouchEvent) => {
+             const moveCoords = getClientCoords(moveEvent);
+             if (!moveCoords) return;
+             const dx = moveCoords.x - startCoords.x;
              const scaleChange = dx / 100; // Adjust sensitivity
              onTransform(id, { ...initialTransform, scale: Math.max(0.2, startScale + scaleChange) });
         };
-        const handleMouseUp = () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+        const handleEnd = () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleEnd);
+            window.removeEventListener('touchmove', handleMove);
+            window.removeEventListener('touchend', handleEnd);
         };
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+        window.addEventListener('touchmove', handleMove);
+        window.addEventListener('touchend', handleEnd);
     };
 
-    const handleResizeWidth = (e: React.MouseEvent<HTMLDivElement>) => {
+    const handleResizeWidthStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
         e.preventDefault();
         e.stopPropagation();
         const parentRect = containerSize;
         if (!parentRect) return;
-
-        const startX = e.clientX;
+        
+        const startCoords = getClientCoords(e.nativeEvent);
+        if (!startCoords) return;
+        
         const startWidth = initialTransform.width || 30; // start width in percent
 
-        const handleMouseMove = (moveEvent: MouseEvent) => {
-            const dx = moveEvent.clientX - startX;
+        const handleMove = (moveEvent: MouseEvent | TouchEvent) => {
+            const moveCoords = getClientCoords(moveEvent);
+            if (!moveCoords) return;
+
+            const dx = moveCoords.x - startCoords.x;
             const dWidthPercent = (dx / parentRect.width) * 100;
             onTransform(id, { ...initialTransform, width: Math.max(10, startWidth + dWidthPercent) });
         };
-        const handleMouseUp = () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+        const handleEnd = () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleEnd);
+            window.removeEventListener('touchmove', handleMove);
+            window.removeEventListener('touchend', handleEnd);
         };
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+        window.addEventListener('touchmove', handleMove);
+        window.addEventListener('touchend', handleEnd);
     };
 
     return (
         <div
-            onMouseDown={handleMouseDown}
+            onMouseDown={handleDragStart}
+            onTouchStart={handleDragStart}
             className="absolute"
             style={{
                 ...style,
@@ -313,11 +356,11 @@ const Transformable: React.FC<{
             {isSelected && isDraggable && (
                 <>
                   {isTextItem ? (
-                      <div onMouseDown={handleResizeWidth} className="transform-handle absolute top-1/2 -right-1.5 -translate-y-1/2 cursor-ew-resize bg-luvin-pink w-2 h-6 rounded-sm border-2 border-white" title="Resize Width"></div>
+                      <div onMouseDown={handleResizeWidthStart} onTouchStart={handleResizeWidthStart} className="transform-handle absolute top-1/2 -right-1.5 -translate-y-1/2 cursor-ew-resize bg-luvin-pink w-2 h-6 rounded-sm border-2 border-white" title="Resize Width"></div>
                   ) : (
                     <>
-                      {isRotatable && <div onMouseDown={handleRotate} className="transform-handle absolute -top-6 left-1/2 -translate-x-1/2 cursor-alias bg-luvin-pink text-white rounded-full h-4 w-4" title="Rotate"></div>}
-                      {isResizable && <div onMouseDown={handleResize} className="transform-handle absolute -bottom-2 -right-2 cursor-nwse-resize bg-luvin-pink w-3 h-3 rounded-full border-2 border-white" title="Resize"></div>}
+                      {isRotatable && <div onMouseDown={handleRotateStart} onTouchStart={handleRotateStart} className="transform-handle absolute -top-6 left-1/2 -translate-x-1/2 cursor-alias bg-luvin-pink text-white rounded-full h-4 w-4" title="Rotate"></div>}
+                      {isResizable && <div onMouseDown={handleResizeStart} onTouchStart={handleResizeStart} className="transform-handle absolute -bottom-2 -right-2 cursor-nwse-resize bg-luvin-pink w-3 h-3 rounded-full border-2 border-white" title="Resize"></div>}
                     </>
                   )}
                 </>
