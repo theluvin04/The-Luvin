@@ -53,7 +53,6 @@ export interface LegoCharacterConfig {
   y: number; // percentage from top
   rotation: number; // degrees
   scale: number; // multiplier
-  flipped?: boolean; // For horizontal flipping
   previousHair?: LegoPart; // To restore hair when hat is removed
 }
 
@@ -69,6 +68,7 @@ export interface TextConfig {
   scale: number; // multiplier
   background: boolean;
   textAlign?: 'left' | 'center' | 'right';
+  width?: number; // percentage of parent width for resizable text box
 }
 
 export interface DraggableItem {
@@ -98,6 +98,7 @@ export interface FrameConfig {
 
 export interface Order {
   id: string;
+  status: string;
   customer: {
     name: string;
     phone: string;

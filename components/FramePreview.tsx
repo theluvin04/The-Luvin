@@ -8,6 +8,7 @@ type Transform = {
   y: number;
   rotation: number;
   scale: number;
+  width?: number;
 }
 
 interface FramePreviewProps {
@@ -22,7 +23,7 @@ interface FramePreviewProps {
 }
 
 const LegoCharacter: React.FC<{ character: LegoCharacterConfig; pxPerCm: number }> = ({ character, pxPerCm }) => {
-  const { hair, hat, face, shirt, pants, flipped } = character;
+  const { hair, hat, face, shirt, pants } = character;
   const shirtImageUrl = character.selectedShirtColor?.imageUrl || shirt?.imageUrl;
   const pantsImageUrl = character.selectedPantsColor?.imageUrl || pants?.imageUrl;
   const activeHeadwear = hat || hair;
@@ -38,7 +39,6 @@ const LegoCharacter: React.FC<{ character: LegoCharacterConfig; pxPerCm: number 
     position: 'relative',
     width: px(CHARACTER_WIDTH_CM),
     height: px(CHARACTER_HEIGHT_CM),
-    transform: flipped ? 'scaleX(-1)' : 'none',
     transformOrigin: 'center',
   };
 
@@ -88,11 +88,10 @@ const getFontFamily = (fontName: string) => {
 
 const EditableText: React.FC<{
     text: TextConfig;
-    scale: number; // This is now pxPerCm
     onUpdate: (updates: Partial<TextConfig>) => void;
     onBeginEditing: () => void;
     onEndEditing: () => void;
-}> = ({ text, scale, onUpdate, onBeginEditing, onEndEditing }) => {
+}> = ({ text, onUpdate, onBeginEditing, onEndEditing }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editedContent, setEditedContent] = useState(text.content);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -130,11 +129,12 @@ const EditableText: React.FC<{
 
     const textStyle: React.CSSProperties = {
         fontFamily: getFontFamily(text.font),
-        fontSize: `${text.size * (scale / 20)}px`, // Kept division for sensible default sizes
+        fontSize: `${text.size}px`,
         color: text.color,
         whiteSpace: 'pre-wrap',
         textAlign: text.textAlign || 'center',
         padding: '10px',
+        wordBreak: 'break-word',
         textShadow: '0 0 5px white, 0 0 5px white',
         ...(text.background && { backgroundColor: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(2px)', borderRadius: '5px' })
     };
@@ -150,8 +150,7 @@ const EditableText: React.FC<{
                 style={{
                     ...textStyle,
                     width: '100%',
-                    height: 'auto',
-                    minWidth: '150px',
+                    height: '100%',
                     border: 'none',
                     outline: 'none',
                     resize: 'none',
@@ -165,7 +164,7 @@ const EditableText: React.FC<{
     }
 
     return (
-        <div style={{minWidth: '50px'}} onDoubleClick={handleDoubleClick}>
+        <div style={{minWidth: '50px', width: '100%', height: '100%'}} onDoubleClick={handleDoubleClick}>
             <p style={textStyle} >
                 {text.content}
             </p>
@@ -186,7 +185,10 @@ const Transformable: React.FC<{
     isRotatable?: boolean;
     isDraggable?: boolean;
     zIndex?: number;
-}> = ({ children, id, initialTransform, onTransform, parentRef, isSelected, onSelect, isResizable = true, isRotatable = true, isDraggable = true, zIndex }) => {
+    style?: React.CSSProperties;
+    isTextItem?: boolean;
+    containerSize?: { width: number; height: number; };
+}> = ({ children, id, initialTransform, onTransform, parentRef, isSelected, onSelect, isResizable = true, isRotatable = true, isDraggable = true, zIndex, style, isTextItem, containerSize }) => {
     
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
         if (!isDraggable) return;
@@ -269,11 +271,34 @@ const Transformable: React.FC<{
         window.addEventListener('mouseup', handleMouseUp);
     };
 
+    const handleResizeWidth = (e: React.MouseEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const parentRect = containerSize;
+        if (!parentRect) return;
+
+        const startX = e.clientX;
+        const startWidth = initialTransform.width || 30; // start width in percent
+
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            const dx = moveEvent.clientX - startX;
+            const dWidthPercent = (dx / parentRect.width) * 100;
+            onTransform(id, { ...initialTransform, width: Math.max(10, startWidth + dWidthPercent) });
+        };
+        const handleMouseUp = () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+    };
+
     return (
         <div
             onMouseDown={handleMouseDown}
             className="absolute"
             style={{
+                ...style,
                 left: `${initialTransform.x}%`,
                 top: `${initialTransform.y}%`,
                 transform: `translate(-50%, -50%) rotate(${initialTransform.rotation}deg) scale(${initialTransform.scale})`,
@@ -287,8 +312,14 @@ const Transformable: React.FC<{
             {children}
             {isSelected && isDraggable && (
                 <>
-                    {isRotatable && <div onMouseDown={handleRotate} className="transform-handle absolute -top-6 left-1/2 -translate-x-1/2 cursor-alias bg-luvin-pink text-white rounded-full h-4 w-4" title="Rotate"></div>}
-                    {isResizable && <div onMouseDown={handleResize} className="transform-handle absolute -bottom-2 -right-2 cursor-nwse-resize bg-luvin-pink w-3 h-3 rounded-full border-2 border-white" title="Resize"></div>}
+                  {isTextItem ? (
+                      <div onMouseDown={handleResizeWidth} className="transform-handle absolute top-1/2 -right-1.5 -translate-y-1/2 cursor-ew-resize bg-luvin-pink w-2 h-6 rounded-sm border-2 border-white" title="Resize Width"></div>
+                  ) : (
+                    <>
+                      {isRotatable && <div onMouseDown={handleRotate} className="transform-handle absolute -top-6 left-1/2 -translate-x-1/2 cursor-alias bg-luvin-pink text-white rounded-full h-4 w-4" title="Rotate"></div>}
+                      {isResizable && <div onMouseDown={handleResize} className="transform-handle absolute -bottom-2 -right-2 cursor-nwse-resize bg-luvin-pink w-3 h-3 rounded-full border-2 border-white" title="Resize"></div>}
+                    </>
+                  )}
                 </>
             )}
         </div>
@@ -408,15 +439,20 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                     const id = `text-${text.id}`;
                     return (
                         <Transformable 
-                            key={id} id={id} initialTransform={{x: text.x, y: text.y, rotation: text.rotation, scale: text.scale}} 
-                            onTransform={onItemTransform} parentRef={previewContainerRef} 
-                            isSelected={selectedItemId === id} onSelect={setSelectedItemId}
+                            key={id} id={id} 
+                            initialTransform={{x: text.x, y: text.y, rotation: text.rotation, scale: text.scale, width: text.width}} 
+                            onTransform={onItemTransform} 
+                            parentRef={previewContainerRef} 
+                            isSelected={selectedItemId === id} 
+                            onSelect={setSelectedItemId}
                             isDraggable={isInteractive && !isCurrentlyEditingText}
                             zIndex={15} // Text is on top of everything
+                            isTextItem={true}
+                            containerSize={{ width: backgroundWidth, height: backgroundHeight }}
+                            style={{ width: `${(text.width || 30) * backgroundWidth / 100}px` }}
                         >
                            <EditableText
                              text={text}
-                             scale={pxPerCm}
                              onUpdate={(updates) => onTextUpdate(text.id, updates)}
                              onBeginEditing={() => setIsCurrentlyEditingText(true)}
                              onEndEditing={() => setIsCurrentlyEditingText(false)}

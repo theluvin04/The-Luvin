@@ -1,4 +1,4 @@
-import type { FrameOption, LegoPart, FrameConfig, OutfitColor } from './types';
+import type { FrameOption, LegoPart, FrameConfig, OutfitColor, Order } from './types';
 
 
 export const FRAME_OPTIONS: FrameOption[] = [
@@ -201,10 +201,63 @@ export const FEEDBACK_ITEMS = [
     { name: 'Thùy Chi', text: 'Chất lượng sản phẩm rất tốt, chi tiết sắc nét.', imageUrl: 'https://i.imgur.com/pBf1gV2.jpg' },
 ];
 
-export const MOCK_ORDERS = {
-  "#TL1234": { status: "Đang xử lý", config: COLLECTION_TEMPLATES[0].config },
-  "#TL5678": { status: "Đã giao hàng", config: COLLECTION_TEMPLATES[1].config },
+export const MOCK_ORDERS: Record<string, Order> = {
+  "#TL012804": {
+    id: "#TL012804",
+    status: "Đang xử lý",
+    customer: {
+      name: "Dương",
+      phone: "0964064015",
+      email: "customer@example.com",
+      address: "Khu A, Phường Trúc Bạch, Quận Ba Đình, Thành phố Hà Nội",
+    },
+    delivery: {
+      date: "2025-11-28",
+      notes: "Giao giờ hành chính",
+    },
+    items: [{
+      ...COLLECTION_TEMPLATES[0].config,
+      frameId: 'lg',
+      previewImageUrl: 'https://i.imgur.com/fL39v3o.jpg'
+    }],
+    addGiftBox: false,
+    shipping: {
+      method: 'standard',
+      fee: 25000,
+    },
+    payment: {
+      method: 'deposit',
+    },
+    totalPrice: 235000,
+    amountToPay: 164500,
+  },
+  "#TL123884": {
+    id: "#TL123884",
+    status: "Chờ thanh toán",
+     customer: {
+      name: "Dương",
+      phone: "0964064015",
+      email: "customer@example.com",
+      address: "Khu A, Phường Trúc Bạch, Quận Ba Đình, Thành phố Hà Nội",
+    },
+     delivery: {
+      date: "2025-11-28",
+      notes: "",
+    },
+    items: [{...COLLECTION_TEMPLATES[1].config, previewImageUrl: 'https://i.imgur.com/pBf1gV2.jpg'}],
+    addGiftBox: false,
+    shipping: {
+      method: 'standard',
+      fee: 25000,
+    },
+    payment: {
+      method: 'deposit',
+    },
+    totalPrice: 235000,
+    amountToPay: 164500,
+  }
 };
+
 
 export const PRODUCT_HIGHLIGHTS = [
     {id: 1, name: 'Khung Kỷ niệm Ngày cưới', collection: 'Bộ sưu tập Tình yêu', imageUrl: 'https://i.imgur.com/8aQp57m.jpg' },

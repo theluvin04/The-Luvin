@@ -16,10 +16,11 @@ import FramePreview from './components/FramePreview';
 
 declare var html2canvas: any;
 
-const formatCurrency = (amount: number) => {
-  if (amount === 0) return 'Miễn phí';
+const formatCurrency = (amount: number, context: 'price' | 'payment' = 'price') => {
+  if (amount === 0 && context === 'price') return 'Miễn phí';
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 };
+
 
 const CHARACTER_BASE_PRICE = 10000;
 
@@ -61,7 +62,7 @@ const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>)
 };
 
 
-type Transform = { x: number; y: number; rotation: number; scale: number; };
+type Transform = { x: number; y: number; rotation: number; scale: number; width?: number };
 
 const StepIndicator: React.FC<{ currentStep: number; setStep: (step: number) => void }> = ({ currentStep, setStep }) => {
   const steps = ['Thông tin SP', 'Nền & Chữ', 'Thiết kế', 'Mua hàng'];
@@ -431,14 +432,6 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
         }));
     }
     
-    const handleFlipChar = () => {
-        if (!activeCharId) return;
-        setConfig(prev => ({
-            ...prev,
-            characters: prev.characters.map(c => c.id === activeCharId ? { ...c, flipped: !c.flipped } : c)
-        }));
-    };
-    
     const partTypes: { key: 'hair' | 'hat' | 'face' | 'shirt' | 'pants', label: string }[] = [
         { key: 'shirt', label: 'Áo' },
         { key: 'pants', label: 'Quần' },
@@ -483,12 +476,9 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
                     <button onClick={handleAddChar} className="bg-green-500 text-white text-sm px-4 py-2 rounded-lg font-medium">+ Thêm ({formatCurrency(CHARACTER_BASE_PRICE)})</button>
                 </div>
                 {activeCharacter && 
-                  <div className="mt-4 pt-4 border-t flex items-center justify-between">
+                  <div className="mt-4 pt-4 border-t flex items-center justify-start">
                     <button onClick={() => setPrintDialogCharId(activeCharacter.id)} className="text-sm text-blue-600 hover:underline font-semibold">
                       {activeCharacter.customPrintPrice ? `In yêu cầu (${formatCurrency(activeCharacter.customPrintPrice)})` : 'Thêm in yêu cầu?'}
-                    </button>
-                    <button onClick={handleFlipChar} className="text-sm bg-gray-200 text-gray-800 px-3 py-1 rounded-md hover:bg-gray-300 font-semibold">
-                        Lật nhân vật
                     </button>
                   </div>
                 }
@@ -594,7 +584,7 @@ const Step4Summary: React.FC<{ totalPrice: number; priceBreakdown: {label: strin
                 {priceBreakdown.map((item, index) => (
                     <div key={index} className="flex justify-between">
                         <span>{item.label}</span>
-                        <span className="font-medium">{item.value > 0 ? formatCurrency(item.value) : 'Miễn phí'}</span>
+                        <span className="font-medium">{item.value > 0 ? formatCurrency(item.value) : formatCurrency(0, 'price')}</span>
                     </div>
                 ))}
                 <div className="border-t border-gray-200 my-2"></div>
@@ -882,26 +872,12 @@ const TextEditor: React.FC<{
                         placeholder="Nhập nội dung văn bản..."
                     />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                    <div>
-                        <label className="text-sm font-bold text-gray-600 block mb-1">Font chữ</label>
-                        <select value={activeText.font} onChange={e => updateActiveText({font: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white">
-                            <option value="Playfair Display">Font Playfair</option>
-                            <option value="Montserrat">Font Montserrat</option>
-                            <option value="Serif">Font Serif</option>
-                        </select>
-                    </div>
-                     <div>
-                        <label className="text-sm font-bold text-gray-600 block mb-1">Màu chữ</label>
-                        <input type="color" value={activeText.color} onChange={e => updateActiveText({color: e.target.value})} className="h-10 w-full p-0.5 bg-white rounded-lg border border-gray-300"/>
-                    </div>
-                </div>
                 <div>
                     <label className="text-sm font-bold text-gray-600 block mb-1">Cỡ chữ</label>
                     <input 
                       type="number" 
-                      min="10" 
-                      max="120" 
+                      min="8" 
+                      max="100" 
                       value={activeText.size} 
                       onChange={e => updateActiveText({ size: parseInt(e.target.value)})} 
                       className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white"
@@ -937,6 +913,26 @@ const BuilderPage: React.FC<{
   const frameCaptureRef = useRef<HTMLDivElement>(null);
   const [previewWidth, setPreviewWidth] = useState(480);
   const [isSaving, setIsSaving] = useState(false);
+  const [isBottomBarVisible, setIsBottomBarVisible] = useState(true);
+  const lastScrollY = useRef(0);
+
+  useEffect(() => {
+    const controlNavbar = () => {
+      const currentScrollY = window.scrollY;
+      // Hide if scrolling down and past a certain point, show if scrolling up
+      if (currentScrollY > lastScrollY.current && currentScrollY > 100) {
+        setIsBottomBarVisible(false);
+      } else {
+        setIsBottomBarVisible(true);
+      }
+      lastScrollY.current = currentScrollY;
+    };
+    window.addEventListener('scroll', controlNavbar);
+    return () => {
+      window.removeEventListener('scroll', controlNavbar);
+    };
+  }, []);
+
 
   useEffect(() => {
     const observer = new ResizeObserver(entries => {
@@ -1022,7 +1018,7 @@ const BuilderPage: React.FC<{
   
   const addText = () => {
       const newId = Date.now();
-      const newText: TextConfig = { id: newId, content: 'Nhập chữ...', font: 'Montserrat', size: 30, color: '#333333', x: 50, y: 50, rotation: 0, scale: 1, background: true, textAlign: 'center' };
+      const newText: TextConfig = { id: newId, content: 'Nhập chữ...', font: 'Montserrat', size: 12, color: '#333333', x: 50, y: 50, rotation: 0, scale: 1, background: true, textAlign: 'center', width: 30 };
       setConfig(prev => ({...prev, texts: [...prev.texts, newText]}));
       setSelectedItemId(`text-${newId}`);
   };
@@ -1162,7 +1158,7 @@ const BuilderPage: React.FC<{
                   </div>
                 </>
               )}
-               <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white shadow-top p-4 z-30">
+               <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-white shadow-top p-4 z-30 transition-transform duration-300 ease-in-out ${isBottomBarVisible ? 'translate-y-0' : 'translate-y-full'}`}>
                      <div className="text-right font-bold text-base text-gray-800 mb-2">
                         Giá tạm tính: <span className="text-luvin-pink">{formatCurrency(totalPrice)}</span>
                       </div>
@@ -1322,21 +1318,61 @@ const CartPanel: React.FC<{
 const CheckoutPage: React.FC<{
   cartItems: FrameConfig[];
   allParts: Record<string, LegoPart>;
-  onPlaceOrder: (order: Order) => void;
+  onPlaceOrder: (order: Omit<Order, 'status'>) => void;
 }> = ({ cartItems, allParts, onPlaceOrder }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [address, setAddress] = useState('');
+  const [street, setStreet] = useState('');
   const [notes, setNotes] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   
+  const [provinces, setProvinces] = useState<{ name: string; code: number }[]>([]);
+  const [districts, setDistricts] = useState<{ name: string; code: number }[]>([]);
+  const [wards, setWards] = useState<{ name: string; code: number }[]>([]);
+  
+  const [selectedProvince, setSelectedProvince] = useState('');
+  const [selectedDistrict, setSelectedDistrict] = useState('');
+  const [selectedWard, setSelectedWard] = useState('');
+
   const [shippingOption, setShippingOption] = useState<'standard' | 'express' | 'bookship'>('standard');
   const [addGiftBox, setAddGiftBox] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'deposit' | 'full'>('deposit');
   
   const GIFT_BOX_PRICE = 30000;
   const SHIPPING_FEES = { standard: 25000, express: 45000, bookship: 0 };
+
+  useEffect(() => {
+    fetch('https://provinces.open-api.vn/api/p/')
+      .then(res => res.json())
+      .then(data => setProvinces(data));
+  }, []);
+
+  useEffect(() => {
+    if (selectedProvince) {
+      fetch(`https://provinces.open-api.vn/api/p/${selectedProvince}?depth=2`)
+        .then(res => res.json())
+        .then(data => setDistricts(data.districts));
+      setSelectedDistrict('');
+      setWards([]);
+      setSelectedWard('');
+    } else {
+      setDistricts([]);
+      setWards([]);
+    }
+  }, [selectedProvince]);
+
+  useEffect(() => {
+    if (selectedDistrict) {
+      fetch(`https://provinces.open-api.vn/api/d/${selectedDistrict}?depth=2`)
+        .then(res => res.json())
+        .then(data => setWards(data.wards));
+      setSelectedWard('');
+    } else {
+      setWards([]);
+    }
+  }, [selectedDistrict]);
+
 
   const subtotal = useMemo(() => cartItems.reduce((total, item) => total + calculatePrice(item, allParts).totalPrice, 0), [cartItems, allParts]);
   const shippingFee = SHIPPING_FEES[shippingOption];
@@ -1346,10 +1382,14 @@ const CheckoutPage: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const orderId = `TL-${Date.now()}`;
+    const provinceName = provinces.find(p => p.code === parseInt(selectedProvince))?.name || '';
+    const districtName = districts.find(d => d.code === parseInt(selectedDistrict))?.name || '';
+    const wardName = wards.find(w => w.code === parseInt(selectedWard))?.name || '';
+    const fullAddress = [street, wardName, districtName, provinceName].filter(Boolean).join(', ');
+    const orderId = `#TL${Date.now().toString().slice(-6)}`;
     onPlaceOrder({
       id: orderId,
-      customer: { name, phone, email, address },
+      customer: { name, phone, email, address: fullAddress },
       delivery: { date: deliveryDate, notes },
       items: cartItems,
       addGiftBox,
@@ -1381,7 +1421,21 @@ const CheckoutPage: React.FC<{
             <div className="bg-gray-50 p-4 rounded-lg border">
               <h2 className="font-bold text-lg mb-4">Địa chỉ & Giao hàng</h2>
               <div className="space-y-4">
-                <textarea placeholder="Địa chỉ chi tiết (số nhà, tên đường, phường/xã, quận/huyện, tỉnh/thành phố)" value={address} onChange={e => setAddress(e.target.value)} rows={3} className="w-full p-2 border rounded" required></textarea>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <select value={selectedProvince} onChange={e => setSelectedProvince(e.target.value)} className="w-full p-2 border rounded bg-white" required>
+                        <option value="">Chọn Tỉnh/Thành phố</option>
+                        {provinces.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
+                    </select>
+                    <select value={selectedDistrict} onChange={e => setSelectedDistrict(e.target.value)} className="w-full p-2 border rounded bg-white" required disabled={!selectedProvince}>
+                        <option value="">Chọn Quận/Huyện</option>
+                        {districts.map(d => <option key={d.code} value={d.code}>{d.name}</option>)}
+                    </select>
+                     <select value={selectedWard} onChange={e => setSelectedWard(e.target.value)} className="w-full p-2 border rounded bg-white" required disabled={!selectedDistrict}>
+                        <option value="">Chọn Phường/Xã</option>
+                        {wards.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}
+                    </select>
+                </div>
+                 <input type="text" placeholder="Số nhà, tên đường" value={street} onChange={e => setStreet(e.target.value)} className="w-full p-2 border rounded" required />
                 <div>
                   <label className="text-sm font-semibold text-gray-700">Ngày nhận hàng mong muốn</label>
                   <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="w-full p-2 border rounded mt-1" required min={new Date().toISOString().split("T")[0]} />
@@ -1450,6 +1504,10 @@ const CheckoutPage: React.FC<{
                 <span>Tổng cộng</span>
                 <span>{formatCurrency(totalPrice)}</span>
               </div>
+              <div className="border-t mt-2 pt-2 flex justify-between font-bold text-lg text-luvin-pink">
+                  <span>Cần thanh toán</span>
+                  <span>{formatCurrency(amountToPay)}</span>
+              </div>
               <div className="border-t mt-4 pt-4">
                 <h3 className="font-semibold mb-2">Phương thức thanh toán</h3>
                 <div className="space-y-2">
@@ -1483,57 +1541,183 @@ const OrderConfirmationPage: React.FC<{ order: Order | null, navigateTo: (page: 
     
     if (!order) return null;
 
+    const amountRemaining = order.totalPrice - order.amountToPay;
+
     return (
-        <div className="bg-white py-12">
-            <div className="container mx-auto px-4 sm:px-6 max-w-3xl">
-                <div className="text-center">
-                    <svg className="mx-auto h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <h1 className="mt-4 text-3xl font-extrabold text-gray-900">Đặt hàng thành công!</h1>
-                    <p className="mt-2 text-sm text-gray-500">
-                        Cảm ơn bạn đã đặt hàng. Một email xác nhận đã được gửi tới <span className="font-medium text-gray-700">{order.customer.email}</span>.
-                    </p>
-                    <p className="mt-2 text-base text-gray-700">Mã đơn hàng của bạn là: <span className="font-bold text-luvin-pink">{order.id}</span></p>
-                </div>
-                
-                <div className="mt-10 bg-gray-50 rounded-lg border p-6">
-                    <h2 className="font-bold text-lg mb-4 border-b pb-2">Thông tin thanh toán</h2>
-                    <p className="text-sm text-gray-600">Vui lòng chuyển khoản số tiền dưới đây để The Luvin xử lý đơn hàng của bạn:</p>
-                    <div className="text-center my-6">
-                        <p className="text-4xl font-bold text-luvin-pink">{formatCurrency(order.amountToPay)}</p>
-                        <p className="text-sm text-gray-500 mt-1">Nội dung chuyển khoản: <span className="font-semibold text-gray-800">{order.id}</span></p>
+        <div className="bg-gray-50 py-12">
+            <div className="container mx-auto px-4 sm:px-6 max-w-2xl">
+                <div className="bg-white p-6 sm:p-8 rounded-lg shadow-md">
+                    <div className="text-center">
+                        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Đơn hàng của bạn đã được ghi nhận!</h1>
+                        <p className="mt-2 text-sm text-gray-600">
+                            Cảm ơn bạn đã đặt hàng. Vui lòng hoàn tất thanh toán để chúng tôi xử lý đơn hàng của bạn.
+                        </p>
+                        <p className="mt-4 text-base text-gray-700">Mã đơn hàng của bạn là: <span className="font-bold text-lg text-luvin-pink">{order.id}</span></p>
                     </div>
-                    <img src={GENERAL_ASSETS.vietqr} alt="VietQR" className="mt-4 w-48 mx-auto" />
-                </div>
-
-                <div className="mt-8">
-                     <h2 className="font-bold text-lg mb-4">Tóm tắt đơn hàng</h2>
-                     <div className="bg-gray-50 rounded-lg border p-4 space-y-4">
-                        {order.items.map((item, index) => (
-                             <div key={index} className="flex gap-4">
-                                <img src={item.previewImageUrl} className="w-20 h-20 object-contain bg-white border rounded" alt="preview" />
-                                <div className="flex-grow">
-                                    <h3 className="text-sm font-semibold">Khung LEGO tùy chỉnh</h3>
-                                    <p className="text-xs text-gray-500">{FRAME_OPTIONS.find(f => f.id === item.frameId)?.name}</p>
-                                </div>
-                             </div>
-                        ))}
-                        <div className="border-t pt-4 text-sm space-y-1">
-                             <div className="flex justify-between"><span>Tổng cộng:</span><span className="font-semibold">{formatCurrency(order.totalPrice)}</span></div>
-                             <div className="flex justify-between text-luvin-pink"><span>Cần thanh toán:</span><span className="font-bold">{formatCurrency(order.amountToPay)}</span></div>
+                    
+                    <div className="mt-8 bg-gray-50 rounded-lg border p-6 text-center">
+                        <h2 className="font-semibold text-gray-700">Quét mã QR để thanh toán</h2>
+                        <img src={GENERAL_ASSETS.vietqr} alt="VietQR" className="mt-4 w-48 mx-auto" />
+                        <div className="mt-4 bg-white p-3 rounded-lg border">
+                           <p className="text-xs text-gray-500">Nội dung chuyển khoản:</p>
+                           <p className="font-bold text-gray-800 tracking-wider">{order.id}</p>
                         </div>
-                     </div>
-                </div>
+                    </div>
 
-                <div className="mt-8 text-center">
-                    <button onClick={() => navigateTo('home')} className="bg-luvin-pink text-gray-800 font-bold py-3 px-8 rounded-lg hover:opacity-90">
-                        Quay về trang chủ
-                    </button>
+                    <div className="mt-8 border-t pt-6">
+                         <h2 className="font-bold text-lg mb-4">Tóm tắt đơn hàng</h2>
+                         <div className="space-y-4">
+                            <div className="bg-gray-50 rounded-lg border p-4 flex justify-between items-center">
+                                <div className="flex items-center gap-4">
+                                  <img src={order.items[0].previewImageUrl} className="w-16 h-16 object-contain bg-white border rounded" alt="preview" />
+                                  <div>
+                                    <p className="font-semibold">Khung tùy chỉnh x 1</p>
+                                  </div>
+                                </div>
+                                <p className="font-semibold">{formatCurrency(order.totalPrice - order.shipping.fee - (order.addGiftBox ? 30000 : 0))}</p>
+                            </div>
+
+                            <div className="text-sm space-y-2">
+                                <div className="flex justify-between"><span>Tạm tính:</span><span className="font-medium">{formatCurrency(order.totalPrice - order.shipping.fee - (order.addGiftBox ? 30000 : 0))}</span></div>
+                                <div className="flex justify-between"><span>Phí vận chuyển:</span><span className="font-medium">{formatCurrency(order.shipping.fee)}</span></div>
+                                {order.addGiftBox && <div className="flex justify-between"><span>Hộp quà:</span><span className="font-medium">{formatCurrency(30000)}</span></div>}
+                                <div className="border-t my-2"></div>
+                                <div className="flex justify-between font-bold text-base"><span>Tổng cộng:</span><span>{formatCurrency(order.totalPrice)}</span></div>
+                                <div className="flex justify-between font-bold text-base text-red-600"><span>Cần thanh toán:</span><span>{formatCurrency(order.amountToPay)}</span></div>
+                                <div className="flex justify-between text-xs text-gray-500"><span>Còn lại (thanh toán khi nhận hàng):</span><span>{formatCurrency(amountRemaining)}</span></div>
+                            </div>
+                            
+                            <div className="border-t pt-4 text-sm space-y-1">
+                                <p><span className="font-semibold">Giao đến:</span> {order.customer.name}</p>
+                                <p><span className="font-semibold">Địa chỉ:</span> {order.customer.address}</p>
+                                <p><span className="font-semibold">SĐT:</span> {order.customer.phone}</p>
+                                <p><span className="font-semibold">Ngày nhận mong muốn:</span> {new Date(order.delivery.date).toLocaleDateString('vi-VN')}</p>
+                            </div>
+                         </div>
+                    </div>
                 </div>
             </div>
         </div>
     )
+};
+
+const OrderLookupPage: React.FC = () => {
+    const [orderCode, setOrderCode] = useState('');
+    const [foundOrder, setFoundOrder] = useState<Order | null | 'not_found'>(null);
+    const [isLoading, setIsLoading] = useState(false);
+
+    const handleSearch = (e: React.FormEvent) => {
+        e.preventDefault();
+        const codeToSearch = orderCode.trim().toUpperCase();
+        if (!codeToSearch) return;
+
+        setIsLoading(true);
+        setFoundOrder(null);
+        
+        setTimeout(() => {
+            const order = MOCK_ORDERS[codeToSearch];
+            setFoundOrder(order || 'not_found');
+            setIsLoading(false);
+        }, 500);
+    };
+
+    const StatusTracker: React.FC<{ currentStatus: string }> = ({ currentStatus }) => {
+        const steps = ['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng'];
+        const currentStepIndex = steps.indexOf(currentStatus);
+
+        return (
+            <div className="relative my-8">
+                <div className="flex justify-between items-start">
+                    {steps.map((step, index) => (
+                        <div key={step} className="z-10 text-center" style={{ width: `${100 / steps.length}%` }}>
+                             <div className={`w-6 h-6 rounded-full flex items-center justify-center mx-auto transition-colors duration-500 relative ${index <= currentStepIndex ? 'bg-luvin-pink' : 'bg-gray-300'}`}>
+                                {index <= currentStepIndex && <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                            </div>
+                            <p className={`mt-2 text-[10px] sm:text-xs font-semibold ${index <= currentStepIndex ? 'text-luvin-pink' : 'text-gray-500'}`}>{step}</p>
+                        </div>
+                    ))}
+                </div>
+                <div className="absolute top-3 left-0 right-0 h-0.5 -z-0" style={{ padding: '0 10%' }}>
+                    <div className="w-full h-full bg-gray-200"></div>
+                     <div 
+                        className="absolute left-0 top-0 h-full bg-luvin-pink transition-all duration-500"
+                        style={{ width: `${(currentStepIndex / (steps.length - 1)) * 100}%` }}
+                    ></div>
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="container mx-auto px-4 sm:px-6 py-8 min-h-[60vh]">
+            <div className="max-w-3xl mx-auto">
+                <div className="text-center">
+                    <h1 className="text-4xl sm:text-5xl font-heading text-luvin-pink mb-4">Tra cứu đơn hàng</h1>
+                    <form onSubmit={handleSearch} className="flex gap-2 max-w-md mx-auto mt-6">
+                        <input
+                            type="text"
+                            value={orderCode}
+                            onChange={(e) => setOrderCode(e.target.value)}
+                            placeholder="#TL012804"
+                            className="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-luvin-pink focus:border-luvin-pink text-center"
+                        />
+                        <button type="submit" disabled={isLoading} className="bg-luvin-pink text-gray-800 font-bold px-6 py-3 rounded-lg hover:opacity-90 disabled:opacity-50">
+                            {isLoading ? '...' : 'Tra cứu'}
+                        </button>
+                    </form>
+                </div>
+
+                <div className="mt-10 min-h-[300px]">
+                    {isLoading && <p className="text-center">Đang tìm kiếm...</p>}
+                    {foundOrder === 'not_found' && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-center">
+                            Không tìm thấy đơn hàng.
+                        </div>
+                    )}
+                    {foundOrder && typeof foundOrder === 'object' && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-md">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <h2 className="font-bold text-lg">Chi tiết đơn hàng</h2>
+                                    <p className="text-sm text-gray-500">{foundOrder.id}</p>
+                                </div>
+                                <button className="text-sm bg-pink-100 text-luvin-pink font-semibold px-3 py-1 rounded-full">
+                                    {foundOrder.status}
+                                </button>
+                            </div>
+                            <StatusTracker currentStatus={foundOrder.status} />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-b py-6 my-6">
+                                <div>
+                                    <h3 className="font-bold mb-2">Thông tin giao hàng</h3>
+                                    <p className="text-sm"><span className="font-semibold">Họ tên:</span> {foundOrder.customer.name}</p>
+                                    <p className="text-sm"><span className="font-semibold">SĐT:</span> {foundOrder.customer.phone}</p>
+                                    <p className="text-sm"><span className="font-semibold">Địa chỉ:</span> {foundOrder.customer.address}</p>
+                                </div>
+                                <div>
+                                    <h3 className="font-bold mb-2">Tóm tắt thanh toán</h3>
+                                    <p className="text-sm flex justify-between"><span>Tổng cộng:</span> <span>{formatCurrency(foundOrder.totalPrice, 'payment')}</span></p>
+                                    <p className="text-sm flex justify-between"><span>Đã thanh toán:</span> <span>{formatCurrency(foundOrder.status === 'Chờ thanh toán' ? 0 : foundOrder.amountToPay, 'payment')}</span></p>
+                                    <p className="text-sm flex justify-between font-semibold mt-1"><span>Còn lại:</span> <span>{formatCurrency(foundOrder.status === 'Chờ thanh toán' ? foundOrder.totalPrice : foundOrder.totalPrice - foundOrder.amountToPay, 'payment')}</span></p>
+                                </div>
+                            </div>
+                             <div>
+                                <h3 className="font-bold mb-2">Sản phẩm</h3>
+                                <div className="bg-gray-50 p-2 rounded-lg flex items-center gap-4">
+                                    <div className="w-20 h-20 flex-shrink-0 bg-white rounded p-1 border">
+                                       <img src={foundOrder.items[0]?.previewImageUrl} className="w-full h-full object-contain" alt="product preview"/>
+                                    </div>
+                                    <div>
+                                        <p className="font-semibold text-sm">Khung LEGO tùy chỉnh</p>
+                                        <p className="text-xs text-gray-500">Kích thước: {FRAME_OPTIONS.find(f => f.id === foundOrder.items[0]?.frameId)?.name}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 };
 
 
@@ -1564,9 +1748,13 @@ const App: React.FC = () => {
         setCartItems(prev => prev.filter((_, i) => i !== index));
     };
 
-    const handlePlaceOrder = (order: Order) => {
+    const handlePlaceOrder = (orderData: Omit<Order, 'status'>) => {
+      const order: Order = { ...orderData, status: "Chờ thanh toán" };
+      // This is a bit of a hack since we are modifying an imported constant.
+      // In a real app, this would be an API call and state update.
+      (MOCK_ORDERS as any)[order.id] = order;
       setCompletedOrder(order);
-      setCartItems([]); // Clear cart after placing order
+      setCartItems([]);
       navigateTo('order-confirmation');
     };
 
@@ -1583,6 +1771,8 @@ const App: React.FC = () => {
                 return <BuilderPage config={config} setConfig={setConfig} navigateTo={navigateTo} onAddToCart={handleAddToCart} showToast={showToast} />;
             case 'collection':
                 return <CollectionPage navigateTo={navigateTo} setConfig={setConfig} />;
+            case 'order-lookup':
+                return <OrderLookupPage />;
             case 'cart':
                 return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allParts={allParts} navigateTo={navigateTo} />;
             case 'checkout':
