@@ -469,7 +469,7 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
                         <Transformable 
                             key={id} id={id} initialTransform={item} onTransform={onItemTransform} onRemove={onItemRemove}
                             parentRef={previewContainerRef} isSelected={selectedItemId === id} onSelect={setSelectedItemId}
-                            isResizable={isInteractive && !isCharm} 
+                            isResizable={isInteractive && item.type === 'charm'} 
                             isRotatable={isInteractive} 
                             isDraggable={isInteractive}
                             zIndex={10} // Accessories are on top of characters
