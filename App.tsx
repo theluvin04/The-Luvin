@@ -55,8 +55,9 @@ const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>)
     const hairPrice = config.characters.reduce((acc, char) => acc + (char.hair?.price || 0) + (char.selectedHairColor?.price || 0), 0);
     if(hairPrice > 0) { breakdown.push({ label: 'Tóc & Màu', value: hairPrice }); total += hairPrice; }
 
-    const hatPrice = config.characters.reduce((acc, char) => acc + (char.hat?.price || 0), 0);
-    if(hatPrice > 0) { breakdown.push({ label: 'Mũ', value: hatPrice }); total += hatPrice; }
+    // Removed legacy hat price calculation from characters since hats are now draggable items
+    // const hatPrice = config.characters.reduce((acc, char) => acc + (char.hat?.price || 0), 0);
+    // if(hatPrice > 0) { breakdown.push({ label: 'Mũ', value: hatPrice }); total += hatPrice; }
 
     const shirtPrice = config.characters.reduce((acc, char) => acc + (char.shirt?.price || 0) + (char.selectedShirtColor?.price || 0), 0);
     if(shirtPrice > 0) { total += shirtPrice; breakdown.push({ label: 'Áo & Màu', value: shirtPrice }); }
@@ -64,8 +65,8 @@ const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>)
     const pantsPrice = config.characters.reduce((acc, char) => acc + (char.pants?.price || 0) + (char.selectedPantsColor?.price || 0), 0);
     if(pantsPrice > 0) { total += pantsPrice; breakdown.push({ label: 'Quần & Màu', value: pantsPrice }); }
 
-    const accessoryPrice = config.draggableItems.filter(i => i.type === 'accessory').reduce((acc, item) => acc + (allParts[item.partId]?.price || 0) + (item.selectedColor?.price || 0), 0);
-    if(accessoryPrice > 0) { total += accessoryPrice; breakdown.push({ label: 'Phụ kiện', value: accessoryPrice }); }
+    const accessoryPrice = config.draggableItems.filter(i => i.type === 'accessory' || i.type === 'hat').reduce((acc, item) => acc + (allParts[item.partId]?.price || 0) + (item.selectedColor?.price || 0), 0);
+    if(accessoryPrice > 0) { total += accessoryPrice; breakdown.push({ label: 'Phụ kiện & Mũ', value: accessoryPrice }); }
     
     const petPrice = config.draggableItems.filter(i => i.type === 'pet').reduce((acc, item) => acc + (allParts[item.partId]?.price || 0) + (item.selectedColor?.price || 0), 0);
     if(petPrice > 0) { total += petPrice; breakdown.push({ label: 'Thú cưng', value: petPrice }); }
@@ -435,6 +436,25 @@ const Step3Characters: React.FC<{
     
     const handlePartSelect = (part: LegoPart | undefined) => {
         if (!activeCharId || !part) return;
+
+        // HATS are now independent DraggableItems, not attached to character
+        if (part.type === 'hat') {
+            const newHat: DraggableItem = {
+                id: Date.now(),
+                partId: part.id,
+                type: 'hat',
+                // Position roughly above the character's head initially
+                x: activeCharacter ? activeCharacter.x : 50,
+                y: activeCharacter ? activeCharacter.y - 30 : 30,
+                rotation: 0,
+                scale: 1,
+                isFlipped: false,
+                selectedColor: part.colors?.[0]
+            };
+            setConfig(prev => ({...prev, draggableItems: [...prev.draggableItems, newHat]}));
+            return;
+        }
+
         setConfig(prev => ({
             ...prev,
             characters: prev.characters.map(c => {
@@ -455,14 +475,8 @@ const Step3Characters: React.FC<{
                     if (part.type === 'pants') newChar.selectedPantsColor = partColors?.[0];
                     if (part.type === 'hair') newChar.selectedHairColor = partColors?.[0];
                     
-                    if (part.type === 'hair') {
-                        newChar.hat = undefined;
-                        newChar.previousHair = undefined;
-                    }
-                    if (part.type === 'hat') {
-                        newChar.previousHair = c.hair;
-                        newChar.hair = undefined;
-                    }
+                    // Legacy logic for hat/hair swap removed since hats are draggable
+                    
                     return newChar;
                 }
                 return c;
@@ -472,15 +486,16 @@ const Step3Characters: React.FC<{
 
     const handlePartDeselect = (partType: 'hair' | 'hat') => {
       if (!activeCharId) return;
+      
+      // For hats, deselecting simply does nothing in this context since they are draggable items now.
+      // User deletes them via the preview interface.
+      if (partType === 'hat') return;
+
       setConfig(prev => ({
         ...prev,
         characters: prev.characters.map(c => {
             if (c.id === activeCharId) {
                 const updatedChar = { ...c, [partType]: undefined };
-                if (partType === 'hat' && c.previousHair) {
-                    updatedChar.hair = c.previousHair;
-                    updatedChar.previousHair = undefined;
-                }
                 return updatedChar;
             }
             return c;
@@ -530,8 +545,7 @@ const Step3Characters: React.FC<{
         const randomFace = getRandomItem(legoParts.face);
         const randomShirt = getRandomItem(legoParts.shirt);
         const randomPants = getRandomItem(legoParts.pants);
-        // 20% chance of getting a hat instead of hair
-        const randomHat = Math.random() < 0.2 ? getRandomItem(legoParts.hat) : undefined;
+        // No longer randomize attached hats since they are draggable
 
         setConfig(prev => ({
             ...prev,
@@ -542,16 +556,8 @@ const Step3Characters: React.FC<{
                     newChar.face = randomFace || c.face;
                     newChar.shirt = randomShirt || c.shirt;
                     newChar.pants = randomPants || c.pants;
-
-                    if (randomHat) {
-                        newChar.hat = randomHat;
-                        newChar.previousHair = randomHair; // Save hair in case hat is removed
-                        newChar.hair = undefined;
-                    } else {
-                        newChar.hair = randomHair || c.hair;
-                        newChar.hat = undefined;
-                    }
-
+                    newChar.hair = randomHair || c.hair;
+                    
                     // Default colors
                     let shirtColors = newChar.shirt?.colors;
                     if (!shirtColors || shirtColors.length === 0) {
@@ -686,8 +692,8 @@ const Step3Characters: React.FC<{
                         ))}
                     </div>
                      <div className="grid grid-cols-4 gap-2">
-                         {(activePartType === 'hair' || activePartType === 'hat') && (
-                             <button onClick={() => handlePartDeselect(activePartType as 'hair' | 'hat')} className="border-2 border-dashed border-gray-300 rounded-lg p-1.5 flex flex-col items-center justify-center gap-1 transition-colors text-center w-full h-full min-h-[100px] text-gray-500 hover:bg-gray-100 hover:border-gray-400">
+                         {(activePartType === 'hair') && (
+                             <button onClick={() => handlePartDeselect('hair')} className="border-2 border-dashed border-gray-300 rounded-lg p-1.5 flex flex-col items-center justify-center gap-1 transition-colors text-center w-full h-full min-h-[100px] text-gray-500 hover:bg-gray-100 hover:border-gray-400">
                                <span className="text-2xl font-bold">&times;</span>
                                <span className="text-[11px] font-semibold">Không chọn</span>
                              </button>
@@ -696,7 +702,8 @@ const Step3Characters: React.FC<{
                             <PartButton 
                                 key={part.id} 
                                 part={part}
-                                isSelected={activeCharacter[activePartType]?.id === part.id}
+                                // For hats, isSelected is always false because they are new instances every time
+                                isSelected={activePartType === 'hat' ? false : activeCharacter[activePartType]?.id === part.id}
                                 onClick={() => handlePartSelect(part)} 
                             />
                         )) : (

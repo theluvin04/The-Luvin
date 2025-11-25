@@ -36,7 +36,7 @@ const SafeImage: React.FC<React.ImgHTMLAttributes<HTMLImageElement>> = (props) =
 };
 
 const LegoCharacter: React.FC<{ character: LegoCharacterConfig; pxPerCm: number }> = ({ character, pxPerCm }) => {
-  const { hair, hat, face, shirt, pants } = character;
+  const { hair, face, shirt, pants } = character;
   const shirtImageUrl = character.selectedShirtColor?.imageUrl || shirt?.imageUrl;
   const pantsImageUrl = character.selectedPantsColor?.imageUrl || pants?.imageUrl;
   
@@ -46,9 +46,7 @@ const LegoCharacter: React.FC<{ character: LegoCharacterConfig; pxPerCm: number 
       hairImageUrl = character.selectedHairColor.imageUrl;
   }
 
-  const activeHeadwear = hat || hair;
-  // Determine the image URL for the headwear (hat or hair)
-  const activeHeadwearUrl = hat ? hat.imageUrl : hairImageUrl;
+  // Hat rendering removed from here as it's now a DraggableItem
 
   // Per user request, the character is composed of 4 same-sized, stacked images.
   // The container will have the final dimensions.
@@ -91,8 +89,8 @@ const LegoCharacter: React.FC<{ character: LegoCharacterConfig; pxPerCm: number 
       {face && face.imageUrl && (
         <SafeImage src={face.imageUrl} alt="face" style={{ ...partStyle, zIndex: 3 }} />
       )}
-      {activeHeadwear && activeHeadwearUrl && (
-        <SafeImage src={activeHeadwearUrl} alt={activeHeadwear.name} style={{ ...partStyle, zIndex: 4 }} />
+      {hair && hairImageUrl && (
+        <SafeImage src={hairImageUrl} alt={hair.name} style={{ ...partStyle, zIndex: 4 }} />
       )}
     </div>
   );
@@ -455,7 +453,7 @@ const FramePreview = React.forwardRef<HTMLDivElement, FramePreviewProps>(({ conf
       if (type === 'item') {
           const item = config.draggableItems.find(i => i.id === id);
           const part = item ? allParts[item.partId] : null;
-          return { type: 'item', data: item, part: part, canFlip: item && (item.type === 'accessory' || item.type === 'pet') };
+          return { type: 'item', data: item, part: part, canFlip: item && (item.type === 'accessory' || item.type === 'pet' || item.type === 'hat') };
       } else if (type === 'text') {
           const item = config.texts.find(t => t.id === id);
           return { type: 'text', data: item, canFlip: false };

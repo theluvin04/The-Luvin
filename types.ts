@@ -86,7 +86,7 @@ export interface TextConfig {
 export interface DraggableItem {
     id: number;
     partId: string; 
-    type: 'accessory' | 'pet' | 'charm';
+    type: 'accessory' | 'pet' | 'charm' | 'hat';
     x: number; 
     y: number; 
     rotation: number; 
