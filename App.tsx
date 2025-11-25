@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, Order } from './types';
+import type { Page, FrameConfig, LegoPart, DraggableItem, TextConfig, LegoCharacterConfig, OutfitColor, Order, PresetBackground, CollectionTemplate, FeedbackItem } from './types';
 import { 
     FRAME_OPTIONS, 
     LEGO_PARTS, 
@@ -10,12 +10,22 @@ import {
     MOCK_ORDERS, 
     PRESET_BACKGROUNDS_SQUARE, 
     PRESET_BACKGROUNDS_RECTANGLE, 
-    PRODUCT_HIGHLIGHTS,
     GENERAL_ASSETS,
+    defaultShirtColors,
+    defaultPantsColors,
 } from './constants';
 import FramePreview from './components/FramePreview';
+import { createOrder, getOrderById } from './services/orderService'; // Kết nối Firebase
+import { getAllParts } from './services/productService'; // Lấy sản phẩm từ DB
+import { getAllBackgrounds } from './services/backgroundService'; // Lấy background từ DB
+import { getStoreConfig } from './services/configService'; // Lấy cấu hình (logo)
+import { getAllTemplates } from './services/templateService'; // Lấy mẫu
+import { getAllFeedbacks } from './services/feedbackService'; // Lấy feedback
+import AdminPage from './components/AdminPage'; // Trang Admin
+import { sendOrderEmail } from './services/emailService'; // Hàm gửi mail
 
 declare var html2canvas: any;
+declare var confetti: any;
 
 const formatCurrency = (amount: number, context: 'price' | 'payment' = 'price') => {
   if (amount === 0 && context === 'price') return 'Miễn phí';
@@ -53,10 +63,10 @@ const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>)
     const pantsPrice = config.characters.reduce((acc, char) => acc + (char.pants?.price || 0) + (char.selectedPantsColor?.price || 0), 0);
     if(pantsPrice > 0) { total += pantsPrice; breakdown.push({ label: 'Quần & Màu', value: pantsPrice }); }
 
-    const accessoryPrice = config.draggableItems.filter(i => i.type === 'accessory').reduce((acc, item) => acc + (allParts[item.partId]?.price || 0), 0);
+    const accessoryPrice = config.draggableItems.filter(i => i.type === 'accessory').reduce((acc, item) => acc + (allParts[item.partId]?.price || 0) + (item.selectedColor?.price || 0), 0);
     if(accessoryPrice > 0) { total += accessoryPrice; breakdown.push({ label: 'Phụ kiện', value: accessoryPrice }); }
     
-    const petPrice = config.draggableItems.filter(i => i.type === 'pet').reduce((acc, item) => acc + (allParts[item.partId]?.price || 0), 0);
+    const petPrice = config.draggableItems.filter(i => i.type === 'pet').reduce((acc, item) => acc + (allParts[item.partId]?.price || 0) + (item.selectedColor?.price || 0), 0);
     if(petPrice > 0) { total += petPrice; breakdown.push({ label: 'Thú cưng', value: petPrice }); }
 
     return { totalPrice: total, priceBreakdown: breakdown };
@@ -65,65 +75,130 @@ const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>)
 
 type Transform = { x: number; y: number; rotation: number; scale: number; width?: number };
 
+// ... (Keep StepIndicator, Step1Frame, PresetBackgroundButton, Step2BackgroundAndDecorations, PartButton, Step3Characters, Step4Summary components as is) ...
 const StepIndicator: React.FC<{ currentStep: number; setStep: (step: number) => void }> = ({ currentStep, setStep }) => {
   const steps = ['Thông tin SP', 'Nền & Chữ', 'Thiết kế', 'Mua hàng'];
+  
   return (
-    <div className="flex items-center space-x-2 sm:space-x-4 my-4 overflow-x-auto no-scrollbar pb-2">
-      {steps.map((label, index) => {
-        const stepNumber = index + 1;
-        const isActive = currentStep === stepNumber;
-        const isCompleted = currentStep > stepNumber;
-
-        return(
-          <button
-            key={index}
-            onClick={() => setStep(stepNumber)}
-            className={`flex flex-shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs sm:text-sm font-medium transition-all duration-300 ${
-              isActive ? 'bg-luvin-pink text-white' : isCompleted ? 'bg-gray-300 text-gray-700' : 'bg-white text-gray-500 border border-gray-300'
-            }`}
-          >
-            <div className={`w-4 h-4 flex items-center justify-center rounded-full text-xs font-bold ${isActive ? 'bg-white text-luvin-pink' : 'bg-gray-400 text-white'}`}>
-              {stepNumber}
-            </div>
-            <span>{label}</span>
-          </button>
-        );
-      })}
+    <div className="w-full max-w-3xl mx-auto md:mx-0 my-6 px-2">
+      <div className="flex justify-between md:justify-start md:gap-4 items-center relative md:w-max">
+        <div className="absolute top-1/2 left-0 w-full h-0.5 bg-gray-200 -z-10 transform -translate-y-1/2 hidden sm:block"></div>
+        
+        {steps.map((label, index) => {
+            const stepNumber = index + 1;
+            const isActive = currentStep === stepNumber;
+            const isCompleted = currentStep > stepNumber;
+            
+            return (
+                <button
+                    key={index}
+                    onClick={() => setStep(stepNumber)}
+                    className={`
+                        relative flex items-center justify-center
+                        transition-all duration-300 ease-in-out
+                        ${isActive ? 'flex-grow sm:flex-grow-0' : 'flex-shrink-0'}
+                    `}
+                    style={{ minWidth: isActive ? 'auto' : '32px' }}
+                >
+                    <div className={`
+                        flex items-center rounded-full border-2 transition-all duration-300 overflow-hidden bg-white
+                        ${isActive 
+                            ? 'border-luvin-pink pl-1 pr-4 py-1 gap-2 shadow-sm w-full' 
+                            : isCompleted 
+                                ? 'border-luvin-pink p-1 w-8 h-8 justify-center' 
+                                : 'border-gray-300 p-1 w-8 h-8 justify-center'
+                        }
+                        sm:w-auto sm:h-auto sm:px-4 sm:py-1.5 sm:gap-2
+                    `}>
+                        <div className={`
+                            w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors
+                            ${isActive 
+                                ? 'bg-luvin-pink text-white' 
+                                : isCompleted 
+                                    ? 'bg-luvin-pink text-white' 
+                                    : 'bg-gray-200 text-gray-500'
+                            }
+                        `}>
+                            {isCompleted ? '✓' : stepNumber}
+                        </div>
+                        <span className={`
+                            text-xs sm:text-sm font-medium whitespace-nowrap transition-all duration-300
+                            ${isActive 
+                                ? 'text-luvin-pink opacity-100 max-w-[150px]' 
+                                : 'text-gray-500 max-w-0 opacity-0 sm:max-w-[150px] sm:opacity-100 sm:block hidden'
+                            }
+                        `}>
+                            {label}
+                        </span>
+                    </div>
+                </button>
+            );
+        })}
+      </div>
     </div>
   );
 };
 
 const Step1Frame: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<React.SetStateAction<FrameConfig>> }> = ({ config, setConfig }) => {
   const selectedFrame = FRAME_OPTIONS.find(f => f.id === config.frameId) || FRAME_OPTIONS[0];
+  
   return (
     <div className="space-y-4">
-      <div className="p-4 border border-gray-200 rounded-lg">
-        <h4 className="font-bold text-gray-800 mb-3">CHỌN KÍCH THƯỚC</h4>
-        <div className="grid grid-cols-3 gap-3">
+      <div className="p-4 border border-gray-200 rounded-lg bg-white">
+        <h4 className="font-bold text-gray-800 mb-3 uppercase text-sm">1. Chọn kích thước khung</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {FRAME_OPTIONS.map(frame => (
             <button
               key={frame.id}
               onClick={() => setConfig(prev => ({ ...prev, frameId: frame.id }))}
-              className={`border rounded-lg py-2 px-1 text-xs sm:text-sm font-semibold transition-all duration-200 flex flex-col items-center justify-center h-16 ${
-                config.frameId === frame.id ? 'bg-luvin-pink text-gray-800 border-luvin-pink' : 'bg-white text-gray-700 border-gray-300 hover:border-gray-500'
+              className={`relative border-2 rounded-xl p-3 flex flex-col items-center gap-3 transition-all group ${
+                config.frameId === frame.id 
+                  ? 'border-luvin-pink bg-pink-50 shadow-sm' 
+                  : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
               }`}
             >
-              <span>{frame.name}</span>
-              <span className="font-normal opacity-80 mt-1">{formatCurrency(frame.price)}</span>
+              <div className="w-full aspect-square bg-gray-100 rounded-lg overflow-hidden relative">
+                 {/* Placeholder for Image if not available */}
+                 {frame.imageUrl && !frame.imageUrl.includes('placehold') ? (
+                     <img src={frame.imageUrl} alt={frame.name} className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" />
+                 ) : (
+                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50">
+                        <span className="text-2xl mb-1">🖼️</span>
+                        <span className="text-[10px]">Ảnh minh họa</span>
+                     </div>
+                 )}
+                 
+                 {config.frameId === frame.id && (
+                    <div className="absolute top-2 right-2 bg-luvin-pink text-white rounded-full p-1 shadow-md">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                 )}
+              </div>
+              
+              <div className="text-center w-full">
+                 <h5 className="font-bold text-gray-800 text-sm">{frame.name}</h5>
+                 <p className="text-sm font-bold text-luvin-pink mt-0.5">{formatCurrency(frame.price)}</p>
+                 <p className="text-[10px] text-gray-500 mt-1 line-clamp-2 min-h-[2.5em]">{frame.description}</p>
+              </div>
             </button>
           ))}
         </div>
       </div>
+      
        {selectedFrame && (
-        <div className="p-4 border border-gray-200 rounded-lg">
-            <h4 className="font-bold text-gray-800 mb-3">GIÁ CƠ BẢN BAO GỒM</h4>
-            <ul className="text-sm list-disc list-inside text-gray-600 space-y-1">
-                <li>1 Khung ảnh composite cao cấp.</li>
+        <div className="p-4 border border-gray-200 rounded-lg bg-gray-50">
+            <h4 className="font-bold text-gray-800 mb-3 uppercase text-sm">Giá cơ bản bao gồm</h4>
+            <ul className="text-sm list-disc list-inside text-gray-600 space-y-1.5 ml-1">
+                <li>1 Khung ảnh composite cao cấp ({selectedFrame.name}).</li>
                 <li>1 Nền tùy chọn (mẫu có sẵn hoặc ảnh của bạn).</li>
                 <li>Miễn phí thêm chữ & ảnh nhỏ trang trí.</li>
                 <li>Hộp quà & thiệp viết tay theo yêu cầu.</li>
             </ul>
-            <p className="text-xs text-gray-500 mt-2 italic">Lưu ý: Giá chưa bao gồm nhân vật LEGO và phụ kiện.</p>
+            <div className="mt-3 pt-3 border-t border-gray-200">
+                <p className="text-xs text-amber-600 italic font-medium bg-amber-50 inline-block px-2 py-1 rounded">
+                    ℹ️ Lưu ý: Giá chưa bao gồm nhân vật LEGO và phụ kiện.
+                </p>
+            </div>
         </div>
       )}
     </div>
@@ -131,7 +206,7 @@ const Step1Frame: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<Reac
 };
 
 const PresetBackgroundButton: React.FC<{
-    bg: { name: string; url: string };
+    bg: PresetBackground;
     isSelected: boolean;
     onClick: () => void;
 }> = ({ bg, isSelected, onClick }) => {
@@ -181,16 +256,17 @@ const Step2BackgroundAndDecorations: React.FC<{
   setConfig: React.Dispatch<React.SetStateAction<FrameConfig>>;
   addText: () => void;
   addCharm: (dataUrl: string) => void;
-}> = ({ config, setConfig, addText, addCharm }) => {
+  backgrounds: PresetBackground[];
+}> = ({ config, setConfig, addText, addCharm, backgrounds }) => {
   const bgUploadRef = useRef<HTMLInputElement>(null);
   const charmUploadRef = useRef<HTMLInputElement>(null);
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
 
   const availableBackgrounds = useMemo(() => {
-    // Check if the selected frame is square ('sm' or 'lg') or rectangle ('md')
     const isSquare = config.frameId === 'sm' || config.frameId === 'lg';
-    return isSquare ? PRESET_BACKGROUNDS_SQUARE : PRESET_BACKGROUNDS_RECTANGLE;
-  }, [config.frameId]);
+    const typeNeeded = isSquare ? 'square' : 'rectangle';
+    return backgrounds.filter(bg => bg.type === typeNeeded);
+  }, [config.frameId, backgrounds]);
 
   const categories = useMemo(() => {
     return ['Tất cả', ...Array.from(new Set(availableBackgrounds.map(bg => bg.category)))];
@@ -204,7 +280,6 @@ const Step2BackgroundAndDecorations: React.FC<{
   }, [selectedCategory, availableBackgrounds]);
 
   useEffect(() => {
-    // Reset category if it's no longer available for the selected frame size
     if (!categories.includes(selectedCategory)) {
         setSelectedCategory('Tất cả');
     }
@@ -261,7 +336,7 @@ const Step2BackgroundAndDecorations: React.FC<{
           {filteredBackgrounds.length > 0 ? (
             filteredBackgrounds.map((bg) => (
               <PresetBackgroundButton
-                key={bg.name}
+                key={bg.id}
                 bg={bg}
                 isSelected={config.background.value === bg.url}
                 onClick={() => setConfig((prev) => ({ ...prev, background: { type: 'image', value: bg.url } }))}
@@ -269,7 +344,7 @@ const Step2BackgroundAndDecorations: React.FC<{
             ))
           ) : (
             <p className="col-span-3 text-center text-sm text-gray-500 py-10">
-              Không có mẫu nào phù hợp với lựa chọn của bạn.
+              {backgrounds.length === 0 ? "Đang tải dữ liệu..." : "Không có mẫu nào phù hợp."}
             </p>
           )}
         </div>
@@ -304,17 +379,38 @@ const PartButton: React.FC<{
     isSelected: boolean;
     onClick: () => void;
 }> = ({ part, isSelected, onClick }) => {
+    const [imgError, setImgError] = useState(false);
+    const [isClicked, setIsClicked] = useState(false);
+
+    const handleClick = () => {
+        setIsClicked(true);
+        onClick();
+        setTimeout(() => setIsClicked(false), 300); // Reset click effect after 300ms
+    };
+    
     return (
         <button
-            onClick={onClick}
-            className={`border rounded-lg p-1.5 flex flex-col items-center justify-start gap-1 transition-all text-center w-full ${
+            onClick={handleClick}
+            className={`border rounded-lg p-1.5 flex flex-col items-center justify-start gap-1 transition-all text-center w-full relative overflow-hidden ${
                 isSelected
                     ? 'border-luvin-pink bg-pink-50'
                     : 'border-gray-200 bg-white hover:border-gray-300'
-            }`}
+            } ${isClicked ? 'ring-2 ring-luvin-pink ring-opacity-50 scale-95' : ''}`}
         >
+            {isClicked && (
+                <div className="absolute inset-0 bg-luvin-pink opacity-20 z-10 animate-ping rounded-lg"></div>
+            )}
             <div className="w-full aspect-square rounded-md bg-gray-100 overflow-hidden flex items-center justify-center">
-                <img src={part.imageUrl} alt={part.name} className="w-full h-full object-contain" />
+                {!imgError && part.imageUrl ? (
+                    <img 
+                        src={part.imageUrl} 
+                        alt={part.name} 
+                        className="w-full h-full object-contain" 
+                        onError={() => setImgError(true)}
+                    />
+                ) : (
+                    <div className="text-[10px] text-gray-400 text-center p-1">No Image</div>
+                )}
             </div>
             <div className="flex flex-col justify-center items-center flex-shrink-0 h-10 leading-tight">
                 <span className="text-[11px] font-semibold text-gray-800">{part.name}</span>
@@ -325,7 +421,11 @@ const PartButton: React.FC<{
 };
 
 
-const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<React.SetStateAction<FrameConfig>> }> = ({ config, setConfig }) => {
+const Step3Characters: React.FC<{ 
+    config: FrameConfig; 
+    setConfig: React.Dispatch<React.SetStateAction<FrameConfig>>;
+    legoParts: typeof LEGO_PARTS;
+}> = ({ config, setConfig, legoParts }) => {
     const [activeCharId, setActiveCharId] = useState<number | null>(config.characters[0]?.id || null);
     const [activePartType, setActivePartType] = useState<'hair' | 'hat' | 'face' | 'shirt' | 'pants'>('shirt');
     const activeCharacter = config.characters.find(c => c.id === activeCharId);
@@ -341,16 +441,16 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
         const newId = Date.now();
         const newCharacter: LegoCharacterConfig = {
             id: newId, 
-            shirt: LEGO_PARTS.shirt[0], 
-            pants: LEGO_PARTS.pants[0],
-            face: LEGO_PARTS.face[0], 
-            hair: LEGO_PARTS.hair[0],
+            shirt: legoParts.shirt[0], 
+            pants: legoParts.pants[0],
+            face: legoParts.face[0], 
+            hair: legoParts.hair[0],
             x: 30 + (config.characters.length % 3) * 20, 
             y: 75, 
             rotation: 0, 
             scale: 1,
-            selectedShirtColor: LEGO_PARTS.shirt[0].colors?.[0],
-            selectedPantsColor: LEGO_PARTS.pants[0].colors?.[0],
+            selectedShirtColor: legoParts.shirt[0]?.colors?.[0],
+            selectedPantsColor: legoParts.pants[0]?.colors?.[0],
         };
         setConfig(prev => ({ ...prev, characters: [...prev.characters, newCharacter] }));
         setActiveCharId(newId);
@@ -367,14 +467,24 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
             characters: prev.characters.map(c => {
                 if (c.id === activeCharId) {
                     const newChar = { ...c, [part.type]: part };
-                    if (part.type === 'shirt') newChar.selectedShirtColor = part.colors?.[0];
-                    if (part.type === 'pants') newChar.selectedPantsColor = part.colors?.[0];
-                    // When selecting hair, remove hat and clear previousHair
+                    let partColors = part.colors;
+                    if (!partColors || partColors.length === 0) {
+                        const nameLower = part.name.toLowerCase();
+                        if (part.type === 'shirt' && (nameLower.includes('trơn') || nameLower.includes('plain') || nameLower.includes('basic') || part.id === 'shirt1')) {
+                            partColors = defaultShirtColors;
+                        }
+                        if (part.type === 'pants' && (nameLower.includes('trơn') || nameLower.includes('plain') || nameLower.includes('basic') || part.id === 'pants1')) {
+                            partColors = defaultPantsColors;
+                        }
+                    }
+
+                    if (part.type === 'shirt') newChar.selectedShirtColor = partColors?.[0];
+                    if (part.type === 'pants') newChar.selectedPantsColor = partColors?.[0];
+                    
                     if (part.type === 'hair') {
                         newChar.hat = undefined;
                         newChar.previousHair = undefined;
                     }
-                    // When selecting a hat, store the current hair and remove it
                     if (part.type === 'hat') {
                         newChar.previousHair = c.hair;
                         newChar.hair = undefined;
@@ -393,7 +503,6 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
         characters: prev.characters.map(c => {
             if (c.id === activeCharId) {
                 const updatedChar = { ...c, [partType]: undefined };
-                // If we are deselecting a hat, restore the previous hair
                 if (partType === 'hat' && c.previousHair) {
                     updatedChar.hair = c.previousHair;
                     updatedChar.previousHair = undefined;
@@ -408,7 +517,7 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
     const addDraggableItem = (part: LegoPart) => {
         if (part.type !== 'accessory' && part.type !== 'pet') return;
         const newItem: DraggableItem = {
-            id: Date.now(), partId: part.id, type: part.type, x: 50 + (Math.random() - 0.5) * 20, y: 50 + (Math.random() - 0.5) * 20, rotation: 0, scale: 1,
+            id: Date.now(), partId: part.id, type: part.type, x: 50 + (Math.random() - 0.5) * 20, y: 50 + (Math.random() - 0.5) * 20, rotation: 0, scale: 1, isFlipped: false, selectedColor: part.colors?.[0]
         };
         setConfig(prev => ({...prev, draggableItems: [...prev.draggableItems, newItem]}));
     }
@@ -432,6 +541,61 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
             characters: prev.characters.map(c => c.id === activeCharId ? { ...c, [key]: color } : c)
         }));
     }
+
+    const handleRandomizeOutfit = () => {
+        if (!activeCharId) return;
+        
+        const getRandomItem = (list: LegoPart[]) => list.length > 0 ? list[Math.floor(Math.random() * list.length)] : undefined;
+        const getRandomColor = (colors: OutfitColor[] | undefined) => colors && colors.length > 0 ? colors[Math.floor(Math.random() * colors.length)] : undefined;
+
+        const randomHair = getRandomItem(legoParts.hair);
+        const randomFace = getRandomItem(legoParts.face);
+        const randomShirt = getRandomItem(legoParts.shirt);
+        const randomPants = getRandomItem(legoParts.pants);
+        // 20% chance of getting a hat instead of hair
+        const randomHat = Math.random() < 0.2 ? getRandomItem(legoParts.hat) : undefined;
+
+        setConfig(prev => ({
+            ...prev,
+            characters: prev.characters.map(c => {
+                if (c.id === activeCharId) {
+                    const newChar: LegoCharacterConfig = { ...c };
+                    
+                    newChar.face = randomFace || c.face;
+                    newChar.shirt = randomShirt || c.shirt;
+                    newChar.pants = randomPants || c.pants;
+
+                    if (randomHat) {
+                        newChar.hat = randomHat;
+                        newChar.previousHair = randomHair; // Save hair in case hat is removed
+                        newChar.hair = undefined;
+                    } else {
+                        newChar.hair = randomHair || c.hair;
+                        newChar.hat = undefined;
+                    }
+
+                    // Default colors
+                    let shirtColors = newChar.shirt?.colors;
+                    if (!shirtColors || shirtColors.length === 0) {
+                         const nameLower = newChar.shirt?.name.toLowerCase() || '';
+                         if (nameLower.includes('trơn') || nameLower.includes('basic')) shirtColors = defaultShirtColors;
+                    }
+                    
+                    let pantsColors = newChar.pants?.colors;
+                    if (!pantsColors || pantsColors.length === 0) {
+                         const nameLower = newChar.pants?.name.toLowerCase() || '';
+                         if (nameLower.includes('trơn') || nameLower.includes('basic')) pantsColors = defaultPantsColors;
+                    }
+
+                    newChar.selectedShirtColor = getRandomColor(shirtColors) || shirtColors?.[0];
+                    newChar.selectedPantsColor = getRandomColor(pantsColors) || pantsColors?.[0];
+
+                    return newChar;
+                }
+                return c;
+            })
+        }));
+    };
     
     const partTypes: { key: 'hair' | 'hat' | 'face' | 'shirt' | 'pants', label: string }[] = [
         { key: 'shirt', label: 'Áo' },
@@ -441,7 +605,38 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
         { key: 'hat', label: 'Mũ' },
     ];
 
-    const currentPartList = LEGO_PARTS[activePartType] || [];
+    // Helper to filter out items with 0 stock
+    const getAvailableParts = (list: LegoPart[]) => {
+        return list.filter(p => p.stock === undefined || p.stock > 0);
+    };
+
+    const currentPartList = getAvailableParts(legoParts[activePartType] || []);
+
+    const activePartColors = useMemo(() => {
+        if (!activeCharacter) return null;
+        if (activePartType === 'shirt') {
+            const part = activeCharacter.shirt;
+            if (part?.colors && part.colors.length > 0) return part.colors;
+            if (part) {
+                const nameLower = part.name.toLowerCase();
+                if (part.id === 'shirt1' || nameLower.includes('trơn') || nameLower.includes('plain') || nameLower.includes('basic')) {
+                    return defaultShirtColors;
+                }
+            }
+        }
+        if (activePartType === 'pants') {
+            const part = activeCharacter.pants;
+            if (part?.colors && part.colors.length > 0) return part.colors;
+            if (part) {
+                const nameLower = part.name.toLowerCase();
+                if (part.id === 'pants1' || nameLower.includes('trơn') || nameLower.includes('plain') || nameLower.includes('basic')) {
+                    return defaultPantsColors;
+                }
+            }
+        }
+        return null;
+    }, [activeCharacter, activePartType]);
+
 
     return (
         <div className="space-y-4">
@@ -462,7 +657,19 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
               </div>
             )}
             <div className="p-4 border border-gray-200 rounded-lg">
-                <h4 className="font-bold text-gray-800 mb-3">QUẢN LÝ NHÂN VẬT</h4>
+                <div className="flex justify-between items-center mb-3">
+                    <h4 className="font-bold text-gray-800">QUẢN LÝ NHÂN VẬT</h4>
+                    {activeCharacter && (
+                        <button 
+                            onClick={handleRandomizeOutfit}
+                            className="text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 px-3 py-1.5 rounded-full font-bold flex items-center gap-1 transition-colors"
+                            title="Chọn ngẫu nhiên trang phục"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                            Ngẫu nhiên
+                        </button>
+                    )}
+                </div>
                 <div className="flex items-center gap-2 flex-wrap">
                     {config.characters.map((char, index) => (
                         <div key={char.id} className="relative">
@@ -503,21 +710,25 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
                                <span className="text-[11px] font-semibold">Không chọn</span>
                              </button>
                          )}
-                        {currentPartList.map(part => (
+                        {currentPartList.length > 0 ? currentPartList.map(part => (
                             <PartButton 
                                 key={part.id} 
                                 part={part}
                                 isSelected={activeCharacter[activePartType]?.id === part.id}
                                 onClick={() => handlePartSelect(part)} 
                             />
-                        ))}
+                        )) : (
+                            <div className="col-span-4 text-center text-sm text-gray-400 py-4">
+                                {legoParts[activePartType].length > 0 ? "Các sản phẩm này đang hết hàng." : "Đang tải hoặc chưa có dữ liệu..."}
+                            </div>
+                        )}
                     </div>
 
-                    {(activePartType === 'shirt' && activeCharacter.shirt?.colors) && (
+                    {(activePartType === 'shirt' && activePartColors) && (
                       <div className="mt-4 pt-4 border-t">
                         <label className="text-sm font-bold text-gray-600 block mb-2">Chỉnh màu áo</label>
                          <div className="flex flex-wrap gap-2">
-                           {activeCharacter.shirt.colors.map(color => (
+                           {activePartColors.map(color => (
                              <button
                                key={color.name}
                                onClick={() => handleColorSelect('shirt', color)}
@@ -529,11 +740,11 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
                          </div>
                       </div>
                     )}
-                    {(activePartType === 'pants' && activeCharacter.pants?.colors) && (
+                    {(activePartType === 'pants' && activePartColors) && (
                       <div className="mt-4 pt-4 border-t">
                         <label className="text-sm font-bold text-gray-600 block mb-2">Chỉnh màu quần</label>
                          <div className="flex flex-wrap gap-2">
-                           {activeCharacter.pants.colors.map(color => (
+                           {activePartColors.map(color => (
                              <button
                                key={color.name}
                                onClick={() => handleColorSelect('pants', color)}
@@ -551,7 +762,7 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
             <div className="p-4 border border-gray-200 rounded-lg">
                 <h4 className="font-bold text-gray-800 mb-3">THÊM PHỤ KIỆN</h4>
                 <div className="grid grid-cols-4 gap-2">
-                    {LEGO_PARTS.accessory.map(part => (
+                    {getAvailableParts(legoParts.accessory).map(part => (
                         <PartButton key={part.id} part={part} isSelected={false} onClick={() => addDraggableItem(part)} />
                     ))}
                 </div>
@@ -560,7 +771,7 @@ const Step3Characters: React.FC<{ config: FrameConfig; setConfig: React.Dispatch
             <div className="p-4 border border-gray-200 rounded-lg">
                 <h4 className="font-bold text-gray-800 mb-3">THÊM THÚ CƯNG</h4>
                 <div className="grid grid-cols-4 gap-2">
-                    {LEGO_PARTS.pet.map(part => (
+                    {getAvailableParts(legoParts.pet).map(part => (
                         <PartButton key={part.id} part={part} isSelected={false} onClick={() => addDraggableItem(part)} />
                     ))}
                 </div>
@@ -607,7 +818,7 @@ const Step4Summary: React.FC<{ totalPrice: number; priceBreakdown: {label: strin
   );
 };
 
-const Header: React.FC<{ navigateTo: (page: Page) => void; cartCount: number; onCartClick: () => void; }> = ({ navigateTo, cartCount, onCartClick }) => {
+const Header: React.FC<{ navigateTo: (page: Page) => void; cartCount: number; onCartClick: () => void; logoUrl: string; }> = ({ navigateTo, cartCount, onCartClick, logoUrl }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -622,7 +833,11 @@ const Header: React.FC<{ navigateTo: (page: Page) => void; cartCount: number; on
   }, [isMenuOpen]);
   
   const navItems: { label: string; page: Page }[] = [
-    { label: 'Trang chủ', page: 'home' }, { label: 'Thiết kế', page: 'builder' }, { label: 'Bộ sưu tập', page: 'collection' }, { label: 'Tra cứu', page: 'order-lookup' },
+    { label: 'Trang chủ', page: 'home' }, 
+    { label: 'Thiết kế', page: 'builder' }, 
+    { label: 'Bộ sưu tập', page: 'collection' }, 
+    { label: 'Tra cứu', page: 'order-lookup' },
+    { label: 'Về chúng tôi', page: 'about' }, // Added About Us
   ];
   
   const handleNav = (page: Page) => { navigateTo(page); setIsMenuOpen(false); }
@@ -631,7 +846,9 @@ const Header: React.FC<{ navigateTo: (page: Page) => void; cartCount: number; on
     <>
       <header className="bg-white/80 backdrop-blur-sm sticky top-0 z-40 shadow-sm border-b border-gray-200">
         <nav className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <div className="text-4xl font-heading text-luvin-pink cursor-pointer" onClick={() => handleNav('home')}>The Luvin</div>
+          <div className="cursor-pointer" onClick={() => handleNav('home')}>
+              {logoUrl ? <img src={logoUrl} alt="The Luvin" className="h-12 object-contain" /> : <span className="font-heading text-2xl text-luvin-pink">The Luvin</span>}
+          </div>
           <div className="hidden md:flex items-center space-x-6 font-body">
             {navItems.map(item => (
               <button key={item.page} onClick={() => handleNav(item.page)} className="text-gray-800 hover:text-luvin-pink transition-colors font-semibold text-sm">
@@ -655,7 +872,6 @@ const Header: React.FC<{ navigateTo: (page: Page) => void; cartCount: number; on
         </nav>
       </header>
 
-      {/* FIX: Mobile menu is now outside the sticky header to prevent stacking context issues */}
       <div 
         className={`fixed inset-0 z-50 md:hidden transition-all duration-300 ${isMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         aria-hidden={!isMenuOpen}
@@ -689,6 +905,8 @@ const Header: React.FC<{ navigateTo: (page: Page) => void; cartCount: number; on
   );
 };
 
+// ... (Keep InstagramIcon, FacebookIcon, Footer, HomePage, TextEditor, BuilderPage, CollectionPage, CartPage, CartPanel, ZoomIcon, CheckoutPage, OrderConfirmationPage, OrderLookupPage components as is) ...
+// ... skipping redundant parts for brevity ...
 const InstagramIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="feather feather-instagram"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
 )
@@ -697,7 +915,7 @@ const FacebookIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="feather feather-facebook"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
 )
 
-const Footer: React.FC = () => {
+const Footer: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }) => {
   return (
     <footer className="bg-white text-gray-800 mt-auto font-body text-sm">
         <div className="bg-gray-100 py-2">
@@ -712,32 +930,157 @@ const Footer: React.FC = () => {
             </div>
         </div>
         <div className="container mx-auto px-6 py-10">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2">
-                    <h3 className="font-bold text-base mb-3">THE LUVIN - KHUNG ẢNH LEGO THIẾT KẾ</h3>
-                    <p className="text-gray-600">Địa chỉ: Khu 6, Thư Lâm, Hà Nội</p>
-                    <p className="text-gray-600">Hotline: 0964 393 115</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                <div className="lg:col-span-1">
+                    <h3 className="font-bold text-base mb-3 text-luvin-pink font-heading text-xl">The Luvin</h3>
+                    <p className="text-gray-600 text-xs leading-relaxed">Nơi những mảnh ghép LEGO kể câu chuyện tình yêu của riêng bạn. Quà tặng độc đáo, tinh tế và đầy ý nghĩa.</p>
+                </div>
+                <div>
+                    <h3 className="font-bold text-base mb-3">LIÊN HỆ</h3>
+                    <p className="text-gray-600 mb-1">Địa chỉ: Khu 6, Thư Lâm, Hà Nội</p>
+                    <p className="text-gray-600 mb-1">Hotline: 0964 393 115</p>
                     <p className="text-gray-600">Email: theluvin.gifts@gmail.com</p>
                 </div>
                 <div>
-                    <h3 className="font-bold text-base mb-3">MORE ABOUT US</h3>
+                    <h3 className="font-bold text-base mb-3">CHÍNH SÁCH & HỖ TRỢ</h3>
+                    <ul className="space-y-2">
+                        <li><button onClick={() => navigateTo('order-lookup')} className="text-gray-600 hover:text-luvin-pink transition-colors">Tra cứu đơn hàng</button></li>
+                        <li><button onClick={() => navigateTo('warranty')} className="text-gray-600 hover:text-luvin-pink transition-colors">Chính sách bảo hành</button></li>
+                        <li><button onClick={() => navigateTo('about')} className="text-gray-600 hover:text-luvin-pink transition-colors">Về chúng tôi</button></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 className="font-bold text-base mb-3">KẾT NỐI VỚI CHÚNG TÔI</h3>
                     <div className="flex space-x-4">
-                        <a href="https://www.instagram.com/the_luvin/" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-700 hover:bg-gray-300"><InstagramIcon /></a>
-                        <a href="https://www.facebook.com/theluvingifts" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-700 hover:bg-gray-300"><FacebookIcon /></a>
+                        <a href="https://www.instagram.com/the_luvin/" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-700 hover:bg-luvin-pink hover:text-white transition-all"><InstagramIcon /></a>
+                        <a href="https://www.facebook.com/theluvingifts" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-700 hover:bg-blue-600 hover:text-white transition-all"><FacebookIcon /></a>
                     </div>
                 </div>
             </div>
         </div>
         <div className="border-t border-gray-200">
-            <div className="container mx-auto px-6 py-4 text-center text-xs text-gray-500">
-                <p>Copyright © {new Date().getFullYear()} The Luvin. All Rights Reserved.</p>
+            <div className="container mx-auto px-6 py-4 flex flex-col items-center justify-center text-xs text-gray-500 relative">
+                <p className="mb-2">Copyright © {new Date().getFullYear()} The Luvin. All Rights Reserved.</p>
+                <a href="https://www.facebook.com/ngojinbtrongduong/" target="_blank" rel="noopener noreferrer" className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors font-medium">
+                   Designed & Developed by <strong>Trong Duong</strong>
+                </a>
             </div>
         </div>
     </footer>
   );
 };
 
-const HomePage: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }) => {
+// ... (Rest of components: AboutPage, WarrantyPage, HomePage, TextEditor) ...
+// ... skipping redundant parts for brevity ...
+
+const AboutPage: React.FC = () => {
+    return (
+        <div className="bg-white font-body text-gray-800">
+            <div className="relative py-20 bg-luvin-cream">
+                <div className="container mx-auto px-6 text-center">
+                    <h1 className="text-4xl md:text-5xl font-heading text-luvin-pink mb-4">Câu chuyện của The Luvin</h1>
+                    <p className="text-lg max-w-2xl mx-auto text-gray-600 italic">"Không chỉ là quà tặng, đó là những kỷ niệm được đóng khung."</p>
+                </div>
+            </div>
+            
+            <div className="container mx-auto px-6 py-16">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center mb-16">
+                    <div>
+                        <h2 className="text-2xl font-bold mb-4 text-gray-900">Khởi nguồn</h2>
+                        <p className="text-gray-600 leading-relaxed mb-4">
+                            The Luvin ra đời từ tình yêu với những mảnh ghép LEGO và mong muốn tạo ra những món quà cá nhân hóa thực sự ý nghĩa. Chúng tôi tin rằng mỗi mối quan hệ, mỗi kỷ niệm đều xứng đáng được lưu giữ một cách đặc biệt nhất.
+                        </p>
+                        <p className="text-gray-600 leading-relaxed">
+                            Thay vì những món quà công nghiệp hàng loạt, The Luvin cho phép bạn tự tay thiết kế từng chi tiết nhỏ: từ màu tóc, trang phục cho đến những phụ kiện nhỏ xinh đại diện cho sở thích của người thương.
+                        </p>
+                    </div>
+                    <div className="rounded-lg overflow-hidden shadow-lg bg-gray-100 aspect-video flex items-center justify-center">
+                        <span className="text-gray-400 font-script text-2xl">Hình ảnh workshop / team</span>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+                    <div className="p-6 border border-gray-100 rounded-xl bg-gray-50 hover:shadow-md transition-shadow">
+                        <div className="w-12 h-12 bg-luvin-pink text-white rounded-full flex items-center justify-center mx-auto mb-4 text-xl">✨</div>
+                        <h3 className="font-bold text-lg mb-2">Cá nhân hóa 100%</h3>
+                        <p className="text-sm text-gray-600">Bạn là người thiết kế chính. Từng nhân vật, từng dòng chữ đều mang dấu ấn riêng của bạn.</p>
+                    </div>
+                    <div className="p-6 border border-gray-100 rounded-xl bg-gray-50 hover:shadow-md transition-shadow">
+                        <div className="w-12 h-12 bg-luvin-pink text-white rounded-full flex items-center justify-center mx-auto mb-4 text-xl">💎</div>
+                        <h3 className="font-bold text-lg mb-2">Chất lượng cao cấp</h3>
+                        <p className="text-sm text-gray-600">Sử dụng mảnh ghép LEGO chính hãng/cao cấp và khung ảnh composite bền đẹp theo thời gian.</p>
+                    </div>
+                    <div className="p-6 border border-gray-100 rounded-xl bg-gray-50 hover:shadow-md transition-shadow">
+                        <div className="w-12 h-12 bg-luvin-pink text-white rounded-full flex items-center justify-center mx-auto mb-4 text-xl">💌</div>
+                        <h3 className="font-bold text-lg mb-2">Gói ghém tận tâm</h3>
+                        <p className="text-sm text-gray-600">Mỗi đơn hàng đều được đóng gói cẩn thận như một món quà gửi đến chính người thân của chúng tôi.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const WarrantyPage: React.FC = () => {
+    return (
+        <div className="bg-gray-50 font-body text-gray-800 py-12 min-h-screen">
+            <div className="container mx-auto px-6 max-w-3xl">
+                <h1 className="text-3xl font-bold text-center mb-8 text-gray-900">Chính sách Bảo hành & Đổi trả</h1>
+                
+                <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                        <h2 className="text-xl font-bold text-luvin-pink mb-4 flex items-center gap-2">
+                            <span>🛡️</span> Chính sách đổi trả
+                        </h2>
+                        <div className="space-y-3 text-sm text-gray-700">
+                            <p>The Luvin hỗ trợ đổi trả/hoàn tiền trong vòng <strong>03 ngày</strong> kể từ khi nhận hàng đối với các trường hợp sau:</p>
+                            <ul className="list-disc list-inside pl-2 space-y-1">
+                                <li>Sản phẩm bị vỡ, hỏng hóc nghiêm trọng do vận chuyển.</li>
+                                <li>Sản phẩm sai mẫu mã, sai thiết kế so với đơn đặt hàng đã chốt (sai tóc, sai áo, sai chữ...).</li>
+                                <li>Thiếu các bộ phận/chi tiết quan trọng.</li>
+                            </ul>
+                            <p className="italic mt-2 text-gray-500 bg-gray-50 p-2 rounded">Lưu ý: Vui lòng quay video mở hộp (unbox) để làm bằng chứng đối chiếu khi khiếu nại.</p>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                        <h2 className="text-xl font-bold text-luvin-pink mb-4 flex items-center gap-2">
+                            <span>🔧</span> Chính sách bảo hành
+                        </h2>
+                        <div className="space-y-3 text-sm text-gray-700">
+                            <p>Chúng tôi bảo hành sản phẩm trong vòng <strong>30 ngày</strong> với các lỗi:</p>
+                            <ul className="list-disc list-inside pl-2 space-y-1">
+                                <li>Keo dán bị bong tróc tự nhiên.</li>
+                                <li>Khung ảnh bị nứt/cong vênh do lỗi nhà sản xuất.</li>
+                            </ul>
+                            <p>Không bảo hành với các lỗi do người sử dụng gây ra như: làm rơi vỡ, để sản phẩm ở nơi ẩm ướt/nhiệt độ cao, tự ý tháo lắp làm hỏng chi tiết.</p>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                        <h2 className="text-xl font-bold text-luvin-pink mb-4 flex items-center gap-2">
+                            <span>🚚</span> Quy trình xử lý
+                        </h2>
+                        <ol className="list-decimal list-inside space-y-3 text-sm text-gray-700">
+                            <li>Liên hệ ngay với The Luvin qua Fanpage hoặc Hotline <strong>0964 393 115</strong> khi gặp sự cố.</li>
+                            <li>Gửi hình ảnh/video tình trạng sản phẩm.</li>
+                            <li>Chúng tôi sẽ xác nhận và gửi phương án xử lý (Gửi bù linh kiện / Đổi mới / Hoàn tiền) trong vòng 24h.</li>
+                            <li>Chi phí vận chuyển đổi trả (nếu do lỗi của The Luvin) sẽ được chúng tôi chi trả 100%.</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+const HomePage: React.FC<{ 
+    navigateTo: (page: Page) => void;
+    heroImage?: string;
+    inspireImage?: string;
+    feedbacks?: FeedbackItem[]; // Changed to prop
+    templates?: CollectionTemplate[]; // Added to display collections from DB
+}> = ({ navigateTo, heroImage, inspireImage, feedbacks, templates }) => {
   const BowIcon = () => (
     <svg className="w-6 h-6 text-luvin-pink opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M12 1.5C12 1.5 12 5.5 15 8.5C18 11.5 22.5 12 22.5 12C22.5 12 18 12.5 15 15.5C12 18.5 12 22.5 12 22.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -746,14 +1089,19 @@ const HomePage: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }
   );
   
   const [activeSlide, setActiveSlide] = useState(0);
-  const sliderProducts = useMemo(() => PRODUCT_HIGHLIGHTS.slice(0, 4), []);
+  
+  // Use templates from DB if available for the carousel, fallback to constant
+  const sliderProducts = useMemo(() => {
+      if (templates && templates.length > 0) return templates.slice(0, 4);
+      return COLLECTION_TEMPLATES.slice(0, 4);
+  }, [templates]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       handleNext();
     }, 4000);
     return () => clearInterval(interval);
-  }, []);
+  }, [sliderProducts]);
 
   const handlePrev = () => {
     setActiveSlide(prev => (prev - 1 + sliderProducts.length) % sliderProducts.length);
@@ -762,11 +1110,17 @@ const HomePage: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }
     setActiveSlide(prev => (prev + 1) % sliderProducts.length);
   };
 
+  // If no images are set, don't render the background image style or use a placeholder class
+  const heroStyle = heroImage ? {backgroundImage: `url(${heroImage})`} : { backgroundColor: '#fce7f3' }; 
+  const inspireStyle = inspireImage ? {backgroundImage: `url(${inspireImage})`} : { backgroundColor: '#fce7f3' };
+
+  const displayFeedbacks = (feedbacks && feedbacks.length > 0) ? feedbacks : [];
+
   return (
     <div>
       <div className="flex flex-col min-h-[calc(100vh-80px)]">
         <div className="flex-grow grid grid-cols-1 md:grid-cols-2">
-          <div className="hidden md:block bg-cover bg-center" style={{backgroundImage: `url(${GENERAL_ASSETS.hero})`}}></div>
+          <div className="hidden md:block bg-cover bg-center" style={heroStyle}></div>
           <div className="flex flex-col justify-center items-center p-8 text-center bg-white">
              <h1 className="text-5xl font-heading text-luvin-pink">The Luvin</h1>
              <p className="font-script text-3xl my-4 text-gray-600">self love, self care</p>
@@ -782,34 +1136,40 @@ const HomePage: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }
 
       <div className="container mx-auto my-12">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-0 items-center">
-          <div className="h-[500px] md:h-[600px] bg-cover bg-center" style={{backgroundImage: `url(${GENERAL_ASSETS.inspire})`}}></div>
+          <div className="h-[500px] md:h-[600px] bg-cover bg-center" style={inspireStyle}></div>
           <div className="bg-gray-100 flex flex-col justify-center items-center p-8 md:p-16 h-[500px] md:h-[600px] relative">
-              <div className="relative w-full max-w-xs aspect-square">
-                  {sliderProducts.map((product, index) => (
-                      <img 
-                          key={product.id} 
-                          src={product.imageUrl} 
-                          alt={product.name}
-                          className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-700 ease-in-out ${activeSlide === index ? 'opacity-100' : 'opacity-0'}`}
-                      />
-                  ))}
-              </div>
-               <button onClick={handlePrev} className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/50 p-2 rounded-full hover:bg-white transition-colors z-10">&larr;</button>
-               <button onClick={handleNext} className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/50 p-2 rounded-full hover:bg-white transition-colors z-10">&rarr;</button>
-              <div className="flex gap-3 my-6">
-                  {sliderProducts.map((_, index) => (
-                      <button 
-                          key={index}
-                          onClick={() => setActiveSlide(index)}
-                          className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${activeSlide === index ? 'bg-gray-800 scale-125' : 'bg-gray-400 hover:bg-gray-400'}`}
-                          aria-label={`Go to slide ${index + 1}`}
-                      />
-                  ))}
-              </div>
-              <div className="text-center h-20">
-                   <p className="text-xs text-gray-500 uppercase tracking-wider">{sliderProducts[activeSlide].collection}</p>
-                   <h3 className="font-semibold text-lg mt-1">{sliderProducts[activeSlide].name}</h3>
-              </div>
+              {sliderProducts.length > 0 ? (
+                  <>
+                    <div className="relative w-full max-w-xs aspect-square">
+                        {sliderProducts.map((product, index) => (
+                            <img 
+                                key={product.id} 
+                                src={product.imageUrl} 
+                                alt={product.name}
+                                className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-700 ease-in-out ${activeSlide === index ? 'opacity-100' : 'opacity-0'}`}
+                            />
+                        ))}
+                    </div>
+                    <button onClick={handlePrev} className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/50 p-2 rounded-full hover:bg-white transition-colors z-10">&larr;</button>
+                    <button onClick={handleNext} className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/50 p-2 rounded-full hover:bg-white transition-colors z-10">&rarr;</button>
+                    <div className="flex gap-3 my-6">
+                        {sliderProducts.map((_, index) => (
+                            <button 
+                                key={index}
+                                onClick={() => setActiveSlide(index)}
+                                className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${activeSlide === index ? 'bg-gray-800 scale-125' : 'bg-gray-400 hover:bg-gray-400'}`}
+                                aria-label={`Go to slide ${index + 1}`}
+                            />
+                        ))}
+                    </div>
+                    <div className="text-center h-20">
+                        <p className="text-xs text-gray-500 uppercase tracking-wider">Featured</p>
+                        <h3 className="font-semibold text-lg mt-1">{sliderProducts[activeSlide].name}</h3>
+                    </div>
+                  </>
+              ) : (
+                  <p className="text-gray-500">Chưa có sản phẩm nổi bật.</p>
+              )}
           </div>
         </div>
       </div>
@@ -818,19 +1178,27 @@ const HomePage: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }
         <div className="container mx-auto px-6">
           <h2 className="text-2xl font-bold font-body text-center mb-8">Our feedbacks</h2>
           <div className="w-full overflow-hidden relative">
-            <div className="flex animate-marquee whitespace-nowrap">
-                {[...FEEDBACK_ITEMS, ...FEEDBACK_ITEMS].map((feedback, index) => (
-                   <div key={index} className="flex-shrink-0 w-60 sm:w-72 bg-luvin-cream p-4 rounded-xl flex flex-col items-center mx-4">
-                     <h3 className="font-script text-3xl text-luvin-pink mb-3">Feedback</h3>
-                     <div className="w-full aspect-square rounded-lg overflow-hidden">
-                       <img src={feedback.imageUrl} alt={feedback.name} className="w-full h-full object-cover"/>
-                     </div>
-                     <div className="mt-4">
-                       <BowIcon />
-                     </div>
-                   </div>
-                ))}
-            </div>
+            {displayFeedbacks.length > 0 ? (
+                <div className="flex animate-marquee whitespace-nowrap">
+                    {[...displayFeedbacks, ...displayFeedbacks].map((feedback, index) => (
+                    <div key={index} className="flex-shrink-0 w-60 sm:w-72 bg-luvin-cream p-4 rounded-xl flex flex-col items-center mx-4">
+                        <h3 className="font-script text-3xl text-luvin-pink mb-3">Feedback</h3>
+                        <div className="w-full aspect-square rounded-lg overflow-hidden">
+                        <img src={feedback.imageUrl} alt={feedback.name} className="w-full h-full object-cover"/>
+                        </div>
+                        <div className="mt-4 text-center whitespace-normal">
+                            <p className="text-sm font-semibold text-gray-800">{feedback.name}</p>
+                            <p className="text-xs text-gray-600 italic mt-1">"{feedback.text}"</p>
+                        </div>
+                        <div className="mt-4">
+                        <BowIcon />
+                        </div>
+                    </div>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-center text-gray-500">Chưa có feedback nào.</p>
+            )}
             <div className="absolute top-0 left-0 w-16 h-full bg-gradient-to-r from-white to-transparent"></div>
             <div className="absolute top-0 right-0 w-16 h-full bg-gradient-to-l from-white to-transparent"></div>
           </div>
@@ -847,7 +1215,8 @@ const TextEditor: React.FC<{
     setConfig: React.Dispatch<React.SetStateAction<FrameConfig>>;
     selectedTextId: number;
     deselect: () => void;
-}> = ({ activeText, setConfig, selectedTextId, deselect }) => {
+    onAddText: () => void;
+}> = ({ activeText, setConfig, selectedTextId, deselect, onAddText }) => {
     
     const updateActiveText = (updates: Partial<TextConfig>) => {
         setConfig(prev => ({
@@ -860,7 +1229,14 @@ const TextEditor: React.FC<{
         <div className="p-4 border border-gray-200 rounded-lg">
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold text-gray-800">CHỈNH SỬA CHỮ</h3>
-                <button onClick={deselect} className="text-sm font-body bg-gray-200 text-gray-700 px-3 py-1 rounded-md hover:bg-gray-300">Xong</button>
+                <div className="flex gap-2">
+                    <button onClick={onAddText} className="text-xs sm:text-sm font-body border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap">
+                        + Thêm chữ
+                    </button>
+                    <button onClick={deselect} className="text-xs sm:text-sm font-body bg-luvin-pink text-gray-800 px-4 py-1.5 rounded-lg hover:opacity-90 font-bold transition-colors">
+                        Xong
+                    </button>
+                </div>
             </div>
             <div className="space-y-4">
                 <div>
@@ -907,7 +1283,9 @@ const BuilderPage: React.FC<{
     navigateTo: (p:Page) => void; 
     onAddToCart: (config: FrameConfig, openCartPanel?: boolean) => void; 
     showToast: (message: string, type: 'success' | 'error') => void;
-}> = ({ config, setConfig, navigateTo, onAddToCart, showToast }) => {
+    legoParts: typeof LEGO_PARTS; // New prop
+    backgrounds: PresetBackground[]; // New prop
+}> = ({ config, setConfig, navigateTo, onAddToCart, showToast, legoParts, backgrounds }) => {
   const [step, setStep] = useState(1);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const previewContainerParentRef = useRef<HTMLDivElement>(null);
@@ -921,7 +1299,6 @@ const BuilderPage: React.FC<{
   useEffect(() => {
     const controlNavbar = () => {
       const currentScrollY = window.scrollY;
-      // Hide if scrolling down and past a certain point, show if scrolling up
       if (currentScrollY > lastScrollY.current && currentScrollY > 100) {
         setIsBottomBarVisible(false);
       } else {
@@ -934,7 +1311,6 @@ const BuilderPage: React.FC<{
       window.removeEventListener('scroll', controlNavbar);
     };
   }, []);
-
 
   useEffect(() => {
     const observer = new ResizeObserver(entries => {
@@ -955,7 +1331,7 @@ const BuilderPage: React.FC<{
     };
   }, []);
   
-  const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>), []);
+  const allParts = useMemo(() => Object.values(legoParts).flat().reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>), [legoParts]);
 
   const { totalPrice, priceBreakdown } = useMemo(() => calculatePrice(config, allParts), [config, allParts]);
   
@@ -983,6 +1359,36 @@ const BuilderPage: React.FC<{
       });
   }, [setConfig]);
 
+  const handleItemFlip = useCallback((id: string) => {
+      const [type, ...rest] = id.split('-');
+      const rawId = rest.join('-');
+      
+      if (type === 'item') {
+          const itemId = parseInt(rawId);
+          setConfig(prev => ({
+              ...prev,
+              draggableItems: prev.draggableItems.map(item => 
+                  item.id === itemId ? { ...item, isFlipped: !item.isFlipped } : item
+              )
+          }));
+      }
+  }, [setConfig]);
+
+  const handleItemUpdate = useCallback((id: string, updates: Partial<DraggableItem>) => {
+      const [type, ...rest] = id.split('-');
+      const rawId = rest.join('-');
+      
+      if (type === 'item') {
+          const itemId = parseInt(rawId);
+          setConfig(prev => ({
+              ...prev,
+              draggableItems: prev.draggableItems.map(item => 
+                  item.id === itemId ? { ...item, ...updates } : item
+              )
+          }));
+      }
+  }, [setConfig]);
+
   const handleItemRemoveCompletely = useCallback((id: string) => {
     const [type, ...rest] = id.split('-');
     const rawId = rest.join('-');
@@ -1007,13 +1413,11 @@ const BuilderPage: React.FC<{
     
     if (type === 'text') {
         const idToUpdate = parseInt(rawId, 10);
-        // As requested, this only clears the text content, doesn't remove the item.
         setConfig(prev => ({
             ...prev,
             texts: prev.texts.map(t => t.id === idToUpdate ? { ...t, content: '' } : t)
         }));
     } else {
-        // For other items, the delete key will remove them completely.
         handleItemRemoveCompletely(id);
     }
   }, [setConfig, handleItemRemoveCompletely]);
@@ -1021,7 +1425,6 @@ const BuilderPage: React.FC<{
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
         if ((e.key === 'Delete' || e.key === 'Backspace') && selectedItemId && !isEditingText) {
-            // Prevent browser back navigation on backspace
             if (e.key === 'Backspace' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
                 e.preventDefault();
             }
@@ -1054,14 +1457,14 @@ const BuilderPage: React.FC<{
   const captureFrameAsImage = async (): Promise<string> => {
     return new Promise((resolve) => {
       const originalSelectedId = selectedItemId;
-      setSelectedItemId(null); // Deselect to hide controls
+      setSelectedItemId(null);
 
       setTimeout(async () => {
         const element = frameCaptureRef.current;
         if (element && typeof html2canvas !== 'undefined') {
           try {
             const canvas = await html2canvas(element, {
-              backgroundColor: null, // Transparent background
+              backgroundColor: null,
               logging: false,
               useCORS: true,
               ignoreElements: (el) => el.classList.contains('transform-handle'),
@@ -1071,13 +1474,13 @@ const BuilderPage: React.FC<{
             console.error('Error capturing frame:', error);
             resolve('');
           } finally {
-            setSelectedItemId(originalSelectedId); // Reselect item
+            setSelectedItemId(originalSelectedId);
           }
         } else {
           resolve('');
-          setSelectedItemId(originalSelectedId); // Reselect item
+          setSelectedItemId(originalSelectedId);
         }
-      }, 50); // Small delay to allow DOM to update
+      }, 50);
     });
   };
 
@@ -1095,11 +1498,64 @@ const BuilderPage: React.FC<{
     }
   };
 
+  const handleSaveDraft = () => {
+      localStorage.setItem('design_draft', JSON.stringify(config));
+      showToast('Đã lưu bản nháp thành công!', 'success');
+  };
+
+  const handleResetDesign = () => {
+      if (confirm("Bạn có chắc muốn làm mới thiết kế? Mọi thay đổi sẽ bị xóa.")) {
+          // Deep clone INITIAL_FRAME_CONFIG to avoid reference issues if it was mutated
+          const cleanConfig = JSON.parse(JSON.stringify(INITIAL_FRAME_CONFIG));
+          
+          setConfig(prev => ({
+              ...cleanConfig,
+              frameId: prev.frameId, // Maintain the current frame size selection
+          }));
+          setSelectedItemId(null);
+      }
+  };
+
+  const handleShare = async () => {
+      const imageUrl = await captureFrameAsImage();
+      if (!imageUrl) return;
+
+      // If Web Share API supported
+      if (navigator.share) {
+          try {
+              const blob = await (await fetch(imageUrl)).blob();
+              const file = new File([blob], "design.png", { type: "image/png" });
+              await navigator.share({
+                  title: 'My LEGO Frame Design',
+                  text: 'Check out my design at The Luvin!',
+                  files: [file],
+              });
+          } catch (error) {
+              console.log('Error sharing', error);
+          }
+      } else {
+          // Fallback: Copy to clipboard or download
+          try {
+              const blob = await (await fetch(imageUrl)).blob();
+              const item = new ClipboardItem({ "image/png": blob });
+              await navigator.clipboard.write([item]);
+              showToast('Đã sao chép ảnh vào bộ nhớ tạm!', 'success');
+          } catch (err) {
+              // Final fallback: Open in new tab
+              const link = document.createElement('a');
+              link.href = imageUrl;
+              link.download = 'my-design.png';
+              link.click();
+              showToast('Đã tải ảnh về máy!', 'success');
+          }
+      }
+  };
+
   const renderStepContent = () => {
     switch (step) {
       case 1: return <Step1Frame config={config} setConfig={setConfig} />;
-      case 2: return <Step2BackgroundAndDecorations config={config} setConfig={setConfig} addText={addText} addCharm={addCharm} />;
-      case 3: return <Step3Characters config={config} setConfig={setConfig} />;
+      case 2: return <Step2BackgroundAndDecorations config={config} setConfig={setConfig} addText={addText} addCharm={addCharm} backgrounds={backgrounds} />;
+      case 3: return <Step3Characters config={config} setConfig={setConfig} legoParts={legoParts} />;
       case 4: return <Step4Summary 
         totalPrice={totalPrice} 
         priceBreakdown={priceBreakdown} 
@@ -1115,34 +1571,64 @@ const BuilderPage: React.FC<{
   return (
     <div className="bg-gray-50 py-4 sm:py-8">
       <div className="container mx-auto px-4">
-        <div className="text-sm text-gray-500 mb-2">
-            <button onClick={() => navigateTo('home')} className="hover:underline">Home</button> / Thiết kế & Mua hàng
+        <div className="flex justify-between items-center mb-4">
+            <div className="text-sm text-gray-500">
+                <button onClick={() => navigateTo('home')} className="hover:underline">Home</button> / Thiết kế & Mua hàng
+            </div>
         </div>
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4">Thiết kế & Mua hàng Khung LEGO</h1>
         <StepIndicator currentStep={step} setStep={setStep} />
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-8 lg:items-start">
           <div className="lg:col-span-7" ref={previewContainerParentRef}>
             <div className="lg:sticky lg:top-24">
-                <h3 className="font-bold text-gray-800 mb-3 text-sm sm:text-base">ẢNH XEM TRƯỚC</h3>
-                <div className="bg-gray-100 rounded-lg flex items-center justify-center aspect-square overflow-hidden p-4">
+                <div className="flex justify-between items-center mb-3">
+                    <h3 className="font-bold text-gray-800 text-sm sm:text-base">ẢNH XEM TRƯỚC</h3>
+                    <div className="flex gap-2">
+                        <button onClick={handleSaveDraft} className="bg-white border border-gray-300 p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 text-xs font-bold flex items-center gap-1" title="Lưu bản nháp">
+                            💾
+                        </button>
+                        <button onClick={handleShare} className="bg-white border border-gray-300 p-1.5 rounded-lg hover:bg-gray-100 text-blue-600 text-xs font-bold flex items-center gap-1" title="Chia sẻ/Lưu ảnh">
+                            📤
+                        </button>
+                        <button onClick={handleResetDesign} className="bg-white border border-red-200 p-1.5 rounded-lg hover:bg-red-50 text-red-600 text-xs font-bold flex items-center gap-1" title="Làm mới">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+                {/* Removed overflow-hidden here to allow toolbar to overflow */}
+                <div className="bg-gray-100 rounded-lg flex items-center justify-center aspect-square p-4 mb-12 lg:mb-0">
                     <FramePreview 
                         ref={frameCaptureRef}
                         config={config} 
-                        containerWidth={previewWidth - 32} // Account for padding
+                        containerWidth={previewWidth - 32} 
                         onItemTransform={handleItemTransform} 
                         onItemRemove={handleItemRemoveCompletely}
                         onTextUpdate={handleTextUpdate}
+                        onItemUpdate={handleItemUpdate}
+                        onItemFlip={handleItemFlip}
                         className="w-full h-full"
                         selectedItemId={selectedItemId}
                         setSelectedItemId={setSelectedItemId}
                         setIsEditingText={setIsEditingText}
+                        allParts={allParts}
                     />
                 </div>
-                <div className="h-10 mt-4"></div>
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex gap-3 items-start shadow-sm">
+                    <span className="text-amber-500 mt-0.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                            <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
+                        </svg>
+                    </span>
+                    <div className="text-xs text-amber-900 leading-relaxed">
+                        <p className="font-bold mb-1">Lưu ý quan trọng:</p>
+                        <p>Đây là bản xem trước mô phỏng. Sau khi đặt hàng, <strong>Designer sẽ thiết kế lại bố cục & màu sắc</strong> đẹp nhất và gửi bạn duyệt trước khi in ấn.</p>
+                    </div>
+                </div>
+                <div className="h-10 mt-4 hidden lg:block"></div>
             </div>
           </div>
 
-          <div className="lg:col-span-5 mt-8 lg:mt-0">
+          <div className="lg:col-span-5 mt-4 lg:mt-0">
               <div className="bg-white p-4 rounded-xl border border-gray-200">
                   {selectedText ? (
                       <TextEditor 
@@ -1150,6 +1636,7 @@ const BuilderPage: React.FC<{
                           setConfig={setConfig}
                           selectedTextId={selectedText.id}
                           deselect={() => setSelectedItemId(null)}
+                          onAddText={addText}
                       />
                   ) : (
                       <>
@@ -1212,9 +1699,37 @@ const BuilderPage: React.FC<{
   );
 };
 
-const CollectionPage: React.FC<{ navigateTo: (page: Page) => void, setConfig: React.Dispatch<React.SetStateAction<FrameConfig>> }> = ({ navigateTo, setConfig }) => {
+// ... (Keep CollectionPage, CartPage, CartPanel, CheckoutPage, OrderConfirmationPage, OrderLookupPage, categorizeParts as is) ...
+// ... skipping redundant parts for brevity ...
+const CollectionPage: React.FC<{ navigateTo: (page: Page) => void, setConfig: React.Dispatch<React.SetStateAction<FrameConfig>>, templates?: CollectionTemplate[] }> = ({ navigateTo, setConfig, templates }) => {
+    const displayTemplates = (templates && templates.length > 0) ? templates : COLLECTION_TEMPLATES;
+    
     const handleCustomize = (config: FrameConfig) => { setConfig(config); navigateTo('builder'); };
-    return ( <div className="container mx-auto px-6 py-8"><h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Bộ sưu tập The Luvin</h1><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">{COLLECTION_TEMPLATES.map((template, index) => ( <div key={index} className="bg-white rounded-lg shadow-lg overflow-hidden group"><div className="relative"><img src={template.imageUrl} alt={template.name} className="w-full h-72 object-cover" /><div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center"><button onClick={() => handleCustomize(template.config)} className="bg-white/80 text-luvin-pink font-bold py-2 px-4 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 font-body">Tùy chỉnh mẫu này</button></div></div><div className="p-6"><h3 className="text-2xl font-bold font-body text-luvin-pink">{template.name}</h3></div></div> ))}</div></div> );
+    
+    return ( 
+      <div className="container mx-auto px-6 py-8">
+        <h1 className="text-5xl font-heading text-center text-luvin-pink mb-8">Bộ sưu tập The Luvin</h1>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {displayTemplates.length > 0 ? displayTemplates.map((template, index) => ( 
+            <div key={template.id || index} className="bg-white rounded-lg shadow-lg overflow-hidden group">
+              <div className="relative">
+                <img src={template.imageUrl} alt={template.name} className="w-full h-72 object-cover" />
+                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center">
+                  <button onClick={() => handleCustomize(template.config)} className="bg-white/80 text-luvin-pink font-bold py-2 px-4 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 font-body">
+                    Tùy chỉnh mẫu này
+                  </button>
+                </div>
+              </div>
+              <div className="p-6">
+                <h3 className="text-2xl font-bold font-body text-luvin-pink">{template.name}</h3>
+              </div>
+            </div> 
+          )) : (
+              <p className="col-span-3 text-center text-gray-500">Đang cập nhật bộ sưu tập...</p>
+          )}
+        </div>
+      </div> 
+    );
 }
 
 const CartPage: React.FC<{ cartItems: FrameConfig[]; onRemoveItem: (index: number) => void; allParts: Record<string, LegoPart>; navigateTo: (page: Page) => void;}> = ({ cartItems, onRemoveItem, allParts, navigateTo }) => {
@@ -1237,7 +1752,7 @@ const CartPage: React.FC<{ cartItems: FrameConfig[]; onRemoveItem: (index: numbe
                                       {item.previewImageUrl ? (
                                         <img src={item.previewImageUrl} alt="Design Preview" className="w-full h-full object-contain" />
                                       ) : (
-                                        <FramePreview config={item} containerWidth={144} onItemTransform={() => {}} onTextUpdate={() => {}} selectedItemId={null} setSelectedItemId={() => {}} isInteractive={false} onItemRemove={() => {}} setIsEditingText={() => {}} />
+                                        <FramePreview config={item} containerWidth={144} onItemTransform={() => {}} onTextUpdate={() => {}} onItemFlip={() => {}} selectedItemId={null} setSelectedItemId={() => {}} isInteractive={false} onItemRemove={() => {}} setIsEditingText={() => {}} allParts={allParts} />
                                       )}
                                     </div>
                                     <div className="flex-grow text-center sm:text-left">
@@ -1310,7 +1825,7 @@ const CartPanel: React.FC<{
                      {item.previewImageUrl ? (
                         <img src={item.previewImageUrl} alt="Design Preview" className="w-full h-full object-contain" />
                       ) : (
-                        <FramePreview config={item} containerWidth={72} isInteractive={false} onItemTransform={()=>{}} onTextUpdate={()=>{}} selectedItemId={null} setSelectedItemId={()=>{}} onItemRemove={() => {}} setIsEditingText={() => {}} />
+                        <FramePreview config={item} containerWidth={72} isInteractive={false} onItemTransform={()=>{}} onTextUpdate={()=>{}} onItemFlip={()=>{}} selectedItemId={null} setSelectedItemId={()=>{}} onItemRemove={() => {}} setIsEditingText={() => {}} allParts={allParts} />
                       )}
                   </div>
                   <div className="flex-grow">
@@ -1346,7 +1861,7 @@ const ZoomIcon = () => (
 const CheckoutPage: React.FC<{
   cartItems: FrameConfig[];
   allParts: Record<string, LegoPart>;
-  onPlaceOrder: (order: Omit<Order, 'status'>) => void;
+  onPlaceOrder: (order: Omit<Order, 'status' | 'createdAt'>) => Promise<void>;
   onZoomImage: (url: string) => void;
 }> = ({ cartItems, allParts, onPlaceOrder, onZoomImage }) => {
   const [name, setName] = useState('');
@@ -1368,6 +1883,9 @@ const CheckoutPage: React.FC<{
   const [addGiftBox, setAddGiftBox] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'deposit' | 'full'>('deposit');
   
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+
   const GIFT_BOX_PRICE = 30000;
   const SHIPPING_FEES = { standard: 25000, express: 45000, bookship: 0 };
 
@@ -1409,24 +1927,41 @@ const CheckoutPage: React.FC<{
   const totalPrice = subtotal + shippingFee + giftBoxFee;
   const amountToPay = paymentMethod === 'deposit' ? totalPrice * 0.7 : totalPrice;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return; 
+
+    const phoneRegex = /^0\d{9}$/;
+    if (!phoneRegex.test(phone)) {
+        setPhoneError("Số điện thoại phải có đúng 10 số và bắt đầu bằng số 0");
+        return;
+    }
+
+    setIsSubmitting(true);
+
     const provinceName = provinces.find(p => p.code === parseInt(selectedProvince))?.name || '';
     const districtName = districts.find(d => d.code === parseInt(selectedDistrict))?.name || '';
     const wardName = wards.find(w => w.code === parseInt(selectedWard))?.name || '';
     const fullAddress = [street, wardName, districtName, provinceName].filter(Boolean).join(', ');
     const orderId = `#TL${Date.now().toString().slice(-6)}`;
-    onPlaceOrder({
-      id: orderId,
-      customer: { name, phone, email, address: fullAddress },
-      delivery: { date: deliveryDate, notes },
-      items: cartItems,
-      addGiftBox,
-      shipping: { method: shippingOption, fee: shippingFee },
-      payment: { method: paymentMethod },
-      totalPrice,
-      amountToPay,
-    });
+    
+    try {
+        await onPlaceOrder({
+          id: orderId,
+          customer: { name, phone, email, address: fullAddress },
+          delivery: { date: deliveryDate, notes },
+          items: cartItems,
+          addGiftBox,
+          shipping: { method: shippingOption, fee: shippingFee },
+          payment: { method: paymentMethod },
+          totalPrice,
+          amountToPay,
+        });
+    } catch (error) {
+        console.error("Order submission error:", error);
+        setIsSubmitting(false);
+        alert("Đã có lỗi xảy ra khi đặt hàng. Vui lòng thử lại.");
+    }
   };
 
   if (cartItems.length === 0) {
@@ -1439,71 +1974,92 @@ const CheckoutPage: React.FC<{
         <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Thông tin thanh toán</h1>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
           <div className="lg:col-span-7 space-y-6">
-            <div className="bg-gray-50 p-4 rounded-lg border">
-              <h2 className="font-bold text-lg mb-4">Thông tin người nhận</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input type="text" placeholder="Họ và tên" value={name} onChange={e => setName(e.target.value)} className="w-full p-2 border rounded" required />
-                <input type="tel" placeholder="Số điện thoại" value={phone} onChange={e => setPhone(e.target.value)} className="w-full p-2 border rounded" required />
-                <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-2 border rounded md:col-span-2" required />
-              </div>
-            </div>
-            <div className="bg-gray-50 p-4 rounded-lg border">
-              <h2 className="font-bold text-lg mb-4">Địa chỉ & Giao hàng</h2>
-              <div className="space-y-4">
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <select value={selectedProvince} onChange={e => setSelectedProvince(e.target.value)} className="w-full p-2 border rounded bg-white" required>
-                        <option value="">Chọn Tỉnh/Thành phố</option>
-                        {provinces.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
-                    </select>
-                    <select value={selectedDistrict} onChange={e => setSelectedDistrict(e.target.value)} className="w-full p-2 border rounded bg-white" required disabled={!selectedProvince}>
-                        <option value="">Chọn Quận/Huyện</option>
-                        {districts.map(d => <option key={d.code} value={d.code}>{d.name}</option>)}
-                    </select>
-                     <select value={selectedWard} onChange={e => setSelectedWard(e.target.value)} className="w-full p-2 border rounded bg-white" required disabled={!selectedDistrict}>
-                        <option value="">Chọn Phường/Xã</option>
-                        {wards.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}
-                    </select>
-                </div>
-                 <input type="text" placeholder="Số nhà, tên đường" value={street} onChange={e => setStreet(e.target.value)} className="w-full p-2 border rounded" required />
-                <div>
-                  <label className="text-sm font-semibold text-gray-700">Ngày nhận hàng mong muốn</label>
-                  <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="w-full p-2 border rounded mt-1" required min={new Date().toISOString().split("T")[0]} />
-                </div>
-                <div>
-                    <h3 className="font-semibold text-sm mb-2 text-gray-700">Phương thức vận chuyển</h3>
-                    <div className="space-y-2">
-                        <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
-                            <input type="radio" name="shipping" value="standard" checked={shippingOption === 'standard'} onChange={() => setShippingOption('standard')} className="h-4 w-4"/>
-                            <span className="ml-2 text-sm flex-grow">Giao hàng thường</span>
-                            <span className="text-sm font-semibold">{formatCurrency(SHIPPING_FEES.standard)}</span>
-                        </label>
-                         <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
-                            <input type="radio" name="shipping" value="express" checked={shippingOption === 'express'} onChange={() => setShippingOption('express')} className="h-4 w-4"/>
-                            <span className="ml-2 text-sm flex-grow">Giao hàng nhanh</span>
-                             <span className="text-sm font-semibold">{formatCurrency(SHIPPING_FEES.express)}</span>
-                        </label>
-                         <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
-                            <input type="radio" name="shipping" value="bookship" checked={shippingOption === 'bookship'} onChange={() => setShippingOption('bookship')} className="h-4 w-4"/>
-                            <span className="ml-2 text-sm flex-grow">Tự book ship / Qua lấy</span>
-                             <span className="text-sm font-semibold">Tự thỏa thuận</span>
-                        </label>
+            
+            <div className="bg-gray-50 p-6 rounded-lg border shadow-sm">
+              <h2 className="font-bold text-xl text-gray-800 mb-6 pb-2 border-b border-gray-200">Thông tin giao hàng</h2>
+              
+              <div className="mb-6 border-b border-gray-200 pb-6">
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">1. Người nhận</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input type="text" placeholder="Họ và tên" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-luvin-pink focus:border-transparent outline-none" required />
+                    <div>
+                      <input 
+                        type="tel" 
+                        placeholder="Số điện thoại" 
+                        value={phone} 
+                        onChange={e => { setPhone(e.target.value); setPhoneError(''); }} 
+                        className={`w-full p-3 border ${phoneError ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'} rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-luvin-pink focus:border-transparent outline-none`} 
+                        required 
+                      />
+                      {phoneError && <p className="text-red-500 text-xs mt-1 ml-1">{phoneError}</p>}
                     </div>
-                </div>
+                    <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-800 md:col-span-2 focus:ring-2 focus:ring-luvin-pink focus:border-transparent outline-none" required />
+                  </div>
+              </div>
+
+              <div className="mb-6 border-b border-gray-200 pb-6">
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">2. Địa chỉ & Vận chuyển</h3>
+                  <div className="space-y-4">
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <select value={selectedProvince} onChange={e => setSelectedProvince(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-luvin-pink outline-none" required>
+                            <option value="">Tỉnh/Thành phố</option>
+                            {provinces.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
+                        </select>
+                        <select value={selectedDistrict} onChange={e => setSelectedDistrict(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-luvin-pink outline-none" required disabled={!selectedProvince}>
+                            <option value="">Quận/Huyện</option>
+                            {districts.map(d => <option key={d.code} value={d.code}>{d.name}</option>)}
+                        </select>
+                         <select value={selectedWard} onChange={e => setSelectedWard(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-800 md:col-span-2 focus:ring-2 focus:ring-luvin-pink outline-none" required disabled={!selectedDistrict}>
+                            <option value="">Phường/Xã</option>
+                            {wards.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}
+                        </select>
+                    </div>
+                     <input type="text" placeholder="Số nhà, tên đường" value={street} onChange={e => setStreet(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-luvin-pink outline-none" required />
+                    
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="text-sm font-semibold text-gray-700 block mb-1">Ngày nhận hàng mong muốn</label>
+                          <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-luvin-pink outline-none" required min={new Date().toISOString().split("T")[0]} />
+                        </div>
+                        <div>
+                            <h3 className="font-semibold text-sm mb-2 text-gray-700">Phương thức vận chuyển</h3>
+                            <div className="space-y-2">
+                                <label className="flex items-center p-2 border rounded-lg bg-white cursor-pointer hover:bg-pink-50 has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
+                                    <input type="radio" name="shipping" value="standard" checked={shippingOption === 'standard'} onChange={() => setShippingOption('standard')} className="h-4 w-4 text-luvin-pink focus:ring-luvin-pink"/>
+                                    <span className="ml-2 text-sm flex-grow text-gray-700">Giao hàng thường</span>
+                                    <span className="text-sm font-bold text-gray-800">{formatCurrency(SHIPPING_FEES.standard)}</span>
+                                </label>
+                                 <label className="flex items-center p-2 border rounded-lg bg-white cursor-pointer hover:bg-pink-50 has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
+                                    <input type="radio" name="shipping" value="express" checked={shippingOption === 'express'} onChange={() => setShippingOption('express')} className="h-4 w-4 text-luvin-pink focus:ring-luvin-pink"/>
+                                    <span className="ml-2 text-sm flex-grow text-gray-700">Giao hàng nhanh</span>
+                                     <span className="text-sm font-bold text-gray-800">{formatCurrency(SHIPPING_FEES.express)}</span>
+                                </label>
+                                 <label className="flex items-center p-2 border rounded-lg bg-white cursor-pointer hover:bg-pink-50 has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
+                                    <input type="radio" name="shipping" value="bookship" checked={shippingOption === 'bookship'} onChange={() => setShippingOption('bookship')} className="h-4 w-4 text-luvin-pink focus:ring-luvin-pink"/>
+                                    <span className="ml-2 text-sm flex-grow text-gray-700">Tự book ship / Qua lấy</span>
+                                     <span className="text-sm font-bold text-gray-800">Thỏa thuận</span>
+                                </label>
+                            </div>
+                        </div>
+                     </div>
+                  </div>
+              </div>
+
+              <div>
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">3. Ghi chú đơn hàng</h3>
+                  <textarea placeholder="Ví dụ: Giao hàng trong giờ hành chính,..." value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full p-3 border border-gray-300 rounded-lg bg-white text-gray-800 focus:ring-2 focus:ring-luvin-pink outline-none"></textarea>
               </div>
             </div>
+
             <div className="bg-gray-50 p-4 rounded-lg border">
-              <h2 className="font-bold text-lg mb-4">Ghi chú cho đơn hàng</h2>
-              <textarea placeholder="Ví dụ: Giao hàng trong giờ hành chính,..." value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full p-2 border rounded"></textarea>
-            </div>
-            <div className="bg-gray-50 p-4 rounded-lg border">
-                 <label className="flex items-center p-3 rounded-lg bg-white cursor-pointer has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50 border">
+                 <label className="flex items-center p-3 rounded-lg bg-white cursor-pointer hover:bg-pink-50 has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50 border">
                     <img src={GENERAL_ASSETS.giftbox} alt="Gift Box" className="w-12 h-12 object-contain mr-4"/>
                     <div className="flex-grow">
                         <span className="font-semibold text-gray-800">Thêm hộp quà</span>
                         <p className="text-xs text-gray-500">Hộp quà cao cấp & thiệp viết tay.</p>
                     </div>
                     <span className="font-bold text-luvin-pink mr-4">+{formatCurrency(GIFT_BOX_PRICE)}</span>
-                    <input type="checkbox" checked={addGiftBox} onChange={e => setAddGiftBox(e.target.checked)} className="h-5 w-5 rounded"/>
+                    <input type="checkbox" checked={addGiftBox} onChange={e => setAddGiftBox(e.target.checked)} className="h-5 w-5 rounded text-luvin-pink focus:ring-luvin-pink"/>
                 </label>
             </div>
           </div>
@@ -1546,17 +2102,17 @@ const CheckoutPage: React.FC<{
                 <h3 className="font-semibold mb-2">Phương thức thanh toán</h3>
                 <div className="space-y-2">
                   <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
-                    <input type="radio" name="payment" value="deposit" checked={paymentMethod === 'deposit'} onChange={() => setPaymentMethod('deposit')} className="h-4 w-4" />
+                    <input type="radio" name="payment" value="deposit" checked={paymentMethod === 'deposit'} onChange={() => setPaymentMethod('deposit')} className="h-4 w-4 text-luvin-pink focus:ring-luvin-pink" />
                     <label htmlFor="deposit" className="ml-2 text-sm">Chuyển khoản cọc 70%</label>
                   </label>
                   <label className="flex items-center p-3 border rounded-lg bg-white has-[:checked]:border-luvin-pink has-[:checked]:bg-pink-50">
-                    <input type="radio" name="payment" value="full" checked={paymentMethod === 'full'} onChange={() => setPaymentMethod('full')} className="h-4 w-4" />
+                    <input type="radio" name="payment" value="full" checked={paymentMethod === 'full'} onChange={() => setPaymentMethod('full')} className="h-4 w-4 text-luvin-pink focus:ring-luvin-pink" />
                     <label htmlFor="full" className="ml-2 text-sm">Chuyển khoản toàn bộ</label>
                   </label>
                 </div>
               </div>
-              <button type="submit" className="w-full mt-4 bg-luvin-pink text-gray-800 font-bold py-3 rounded-lg hover:opacity-90">
-                ĐẶT HÀNG
+              <button type="submit" disabled={isSubmitting} className="w-full mt-4 bg-luvin-pink text-gray-800 font-bold py-3 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-wait">
+                {isSubmitting ? 'Đang xử lý...' : 'ĐẶT HÀNG'}
               </button>
             </div>
           </div>
@@ -1570,18 +2126,50 @@ const OrderConfirmationPage: React.FC<{ order: Order | null, navigateTo: (page: 
     useEffect(() => {
         if (!order) {
             navigateTo('home');
+        } else {
+            // Confetti effect on mount
+            if (typeof confetti === 'function') {
+                const duration = 3 * 1000;
+                const animationEnd = Date.now() + duration;
+                const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+
+                const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
+
+                const interval: any = setInterval(function() {
+                    const timeLeft = animationEnd - Date.now();
+
+                    if (timeLeft <= 0) {
+                        return clearInterval(interval);
+                    }
+
+                    const particleCount = 50 * (timeLeft / duration);
+                    confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } }));
+                    confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } }));
+                }, 250);
+            }
         }
     }, [order, navigateTo]);
     
     if (!order) return null;
 
     const amountRemaining = order.totalPrice - order.amountToPay;
+    
+    const getVietQR = (order: Order) => {
+        const BANK_ID = '970407'; // Techcombank
+        const ACCOUNT_NO = '65838666666';
+        const TEMPLATE = 'compact2';
+        const DESCRIPTION = encodeURIComponent(order.id.replace('#', ''));
+        const amount = order.amountToPay;
+        
+        return `https://img.vietqr.io/image/${BANK_ID}-${ACCOUNT_NO}-${TEMPLATE}.png?amount=${amount}&addInfo=${DESCRIPTION}&accountName=TheLuvin`;
+    };
 
     return (
         <div className="bg-gray-50 py-12">
             <div className="container mx-auto px-4 sm:px-6 max-w-2xl">
                 <div className="bg-white p-6 sm:p-8 rounded-lg shadow-md">
                     <div className="text-center">
+                        <div className="mb-4 text-5xl">🎉</div>
                         <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Đơn hàng của bạn đã được ghi nhận!</h1>
                         <p className="mt-2 text-sm text-gray-600">
                             Cảm ơn bạn đã đặt hàng. Vui lòng hoàn tất thanh toán để chúng tôi xử lý đơn hàng của bạn.
@@ -1591,7 +2179,7 @@ const OrderConfirmationPage: React.FC<{ order: Order | null, navigateTo: (page: 
                     
                     <div className="mt-8 bg-gray-50 rounded-lg border p-6 text-center">
                         <h2 className="font-semibold text-gray-700">Quét mã QR để thanh toán</h2>
-                        <img src={GENERAL_ASSETS.vietqr} alt="VietQR" className="mt-4 w-48 mx-auto" />
+                        <img src={getVietQR(order)} alt="VietQR" className="mt-4 w-48 mx-auto border rounded-lg" />
                         <div className="mt-4 bg-white p-3 rounded-lg border">
                            <p className="text-xs text-gray-500">Nội dung chuyển khoản:</p>
                            <p className="font-bold text-gray-800 tracking-wider">{order.id}</p>
@@ -1642,33 +2230,83 @@ const OrderConfirmationPage: React.FC<{ order: Order | null, navigateTo: (page: 
 
 const OrderLookupPage: React.FC<{onZoomImage: (url: string) => void}> = ({onZoomImage}) => {
     const [orderCode, setOrderCode] = useState('');
-    const [foundOrder, setFoundOrder] = useState<Order | null | 'not_found'>(null);
+    const [foundOrder, setFoundOrder] = useState<Order | null | 'not_found' | 'permission_error'>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [savedOrders, setSavedOrders] = useState<{id: string, date: number}[]>([]);
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        const codeToSearch = orderCode.trim().toUpperCase();
+    useEffect(() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('my_orders') || '[]');
+            if (Array.isArray(saved)) {
+                setSavedOrders(saved);
+            }
+        } catch(e) {
+            // Ignore error
+        }
+    }, []);
+
+    const handleSearch = async (e?: React.FormEvent, codeOverride?: string) => {
+        if (e) e.preventDefault();
+        let codeToSearch = (codeOverride || orderCode).trim().toUpperCase();
         if (!codeToSearch) return;
+
+        if (!codeToSearch.startsWith('#')) {
+            codeToSearch = '#' + codeToSearch;
+        }
+        
+        // Update input if searched via click
+        if (codeOverride) setOrderCode(codeToSearch);
 
         setIsLoading(true);
         setFoundOrder(null);
         
-        setTimeout(() => {
-            const order = MOCK_ORDERS[codeToSearch];
+        try {
+            let order = await getOrderById(codeToSearch);
+
+            if (!order) {
+                order = MOCK_ORDERS[codeToSearch] || null;
+            }
+
             setFoundOrder(order || 'not_found');
+        } catch (error: any) {
+            console.error("Lỗi tra cứu đơn hàng:", error);
+            if (error.code === 'permission-denied') {
+                setFoundOrder('permission_error');
+            } else {
+                const mockOrder = MOCK_ORDERS[codeToSearch];
+                setFoundOrder(mockOrder || 'not_found');
+            }
+        } finally {
             setIsLoading(false);
-        }, 500);
+        }
     };
 
     const StatusTracker: React.FC<{ currentStatus: string }> = ({ currentStatus }) => {
+        const getStepIndex = (status: string) => {
+            switch(status) {
+                case 'Chờ thanh toán': return 0;
+                case 'Đã xác nhận': return 1;
+                case 'Ưu tiên xuất đơn':
+                case 'Đang đóng hàng':
+                case 'Chờ chuyển hàng':
+                case 'Đang xử lý': 
+                    return 2;
+                case 'Gửi hàng đi':
+                case 'Đang giao hàng': 
+                    return 3;
+                case 'Đã giao hàng': return 4;
+                default: return -1; 
+            }
+        };
+
         const steps = ['Chờ thanh toán', 'Đã xác nhận', 'Đang xử lý', 'Đang giao hàng', 'Đã giao hàng'];
-        const currentStepIndex = steps.indexOf(currentStatus);
+        const currentStepIndex = getStepIndex(currentStatus);
 
         return (
             <div className="relative my-8">
                 <div className="flex justify-between items-start">
                     {steps.map((step, index) => (
-                        <div key={step} className="z-10 text-center" style={{ width: `${100 / steps.length}%` }}>
+                        <div key={step} className="z-10 text-center" style={ { width: `${100 / steps.length}%` }}>
                              <div className={`w-6 h-6 rounded-full flex items-center justify-center mx-auto transition-colors duration-500 relative ${index <= currentStepIndex ? 'bg-luvin-pink' : 'bg-gray-300'}`}>
                                 {index <= currentStepIndex && <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                             </div>
@@ -1698,61 +2336,93 @@ const OrderLookupPage: React.FC<{onZoomImage: (url: string) => void}> = ({onZoom
                             value={orderCode}
                             onChange={(e) => setOrderCode(e.target.value)}
                             placeholder="#TL012804"
-                            className="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-luvin-pink focus:border-luvin-pink text-center"
+                            className="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-luvin-pink focus:border-luvin-pink text-center uppercase"
                         />
                         <button type="submit" disabled={isLoading} className="bg-luvin-pink text-gray-800 font-bold px-6 py-3 rounded-lg hover:opacity-90 disabled:opacity-50">
                             {isLoading ? '...' : 'Tra cứu'}
                         </button>
                     </form>
+                    
+                    {/* Display saved orders */}
+                    {savedOrders.length > 0 && !foundOrder && (
+                        <div className="mt-8 max-w-md mx-auto">
+                            <p className="text-sm text-gray-500 mb-3 font-medium">Đơn hàng của bạn (trên thiết bị này):</p>
+                            <div className="space-y-2">
+                                {savedOrders.map((item, idx) => (
+                                    <div 
+                                        key={idx} 
+                                        onClick={() => handleSearch(undefined, item.id)}
+                                        className="bg-white border border-gray-200 p-3 rounded-lg flex justify-between items-center cursor-pointer hover:bg-gray-50 transition-colors group"
+                                    >
+                                        <div className="text-left">
+                                            <p className="font-bold text-gray-800">{item.id}</p>
+                                            <p className="text-xs text-gray-500">{new Date(item.date).toLocaleDateString('vi-VN')}</p>
+                                        </div>
+                                        <span className="text-xs font-bold text-luvin-pink group-hover:underline">Xem ngay &rarr;</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="mt-10 min-h-[300px]">
                     {isLoading && <p className="text-center">Đang tìm kiếm...</p>}
                     {foundOrder === 'not_found' && (
                         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-center">
-                            Không tìm thấy đơn hàng.
+                            Không tìm thấy đơn hàng. Vui lòng kiểm tra lại mã đơn hàng (Ví dụ: #TL123456).
+                        </div>
+                    )}
+                    {foundOrder === 'permission_error' && (
+                        <div className="bg-yellow-50 border border-yellow-300 text-yellow-800 p-4 rounded-lg text-center">
+                            <p className="font-bold">Hệ thống đang bảo trì</p>
+                            <p className="text-sm mt-1">
+                                Tính năng tra cứu đang được nâng cấp. Vui lòng inbox Fanpage hoặc gọi Hotline <strong className="whitespace-nowrap">0964 393 115</strong> để được hỗ trợ kiểm tra đơn hàng nhanh nhất.
+                            </p>
                         </div>
                     )}
                     {foundOrder && typeof foundOrder === 'object' && (
                         <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-md">
                             <div className="flex justify-between items-start">
                                 <div>
-                                    <h2 className="font-bold text-lg">Chi tiết đơn hàng</h2>
-                                    <p className="text-sm text-gray-500">{foundOrder.id}</p>
+                                    <h2 className="font-bold text-lg">Chi tiết đơn hàng <span className="text-luvin-pink">{foundOrder.id}</span></h2>
+                                    <p className="text-sm text-gray-500">
+                                        Ngày đặt: {foundOrder.id.startsWith('#TL') && !isNaN(Number(foundOrder.id.slice(3, -4))) ? new Date().toLocaleDateString('vi-VN') : '---'}
+                                    </p>
                                 </div>
-                                <button className="text-sm bg-pink-100 text-luvin-pink font-semibold px-3 py-1 rounded-full">
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${foundOrder.status === 'Đã giao hàng' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
                                     {foundOrder.status}
-                                </button>
+                                </span>
                             </div>
+
                             <StatusTracker currentStatus={foundOrder.status} />
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-b py-6 my-6">
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                                 <div>
-                                    <h3 className="font-bold mb-2">Thông tin giao hàng</h3>
-                                    <p className="text-sm"><span className="font-semibold">Họ tên:</span> {foundOrder.customer.name}</p>
-                                    <p className="text-sm"><span className="font-semibold">SĐT:</span> {foundOrder.customer.phone}</p>
-                                    <p className="text-sm"><span className="font-semibold">Địa chỉ:</span> {foundOrder.customer.address}</p>
+                                    <h3 className="font-bold text-gray-800 border-b pb-2 mb-3">Thông tin nhận hàng</h3>
+                                    <p><span className="font-semibold">Người nhận:</span> {foundOrder.customer.name}</p>
+                                    <p><span className="font-semibold">SĐT:</span> {foundOrder.customer.phone}</p>
+                                    <p><span className="font-semibold">Địa chỉ:</span> {foundOrder.customer.address}</p>
                                 </div>
                                 <div>
-                                    <h3 className="font-bold mb-2">Tóm tắt thanh toán</h3>
-                                    <p className="text-sm flex justify-between"><span>Tổng cộng:</span> <span>{formatCurrency(foundOrder.totalPrice, 'payment')}</span></p>
-                                    <p className="text-sm flex justify-between"><span>Đã thanh toán:</span> <span>{formatCurrency(foundOrder.status === 'Chờ thanh toán' ? 0 : foundOrder.amountToPay, 'payment')}</span></p>
-                                    <p className="text-sm flex justify-between font-semibold mt-1"><span>Còn lại:</span> <span>{formatCurrency(foundOrder.status === 'Chờ thanh toán' ? foundOrder.totalPrice : foundOrder.totalPrice - foundOrder.amountToPay, 'payment')}</span></p>
+                                    <h3 className="font-bold text-gray-800 border-b pb-2 mb-3">Đơn hàng</h3>
+                                    <div className="space-y-2">
+                                        {foundOrder.items.map((item, idx) => (
+                                            <div key={idx} className="flex items-center gap-3">
+                                                <div className="w-12 h-12 bg-gray-100 rounded border overflow-hidden cursor-pointer" onClick={() => item.previewImageUrl && onZoomImage(item.previewImageUrl)}>
+                                                    {item.previewImageUrl && <img src={item.previewImageUrl} className="w-full h-full object-contain" />}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-semibold">Khung thiết kế</p>
+                                                    <p className="text-xs text-gray-500">{item.characters.length} nhân vật</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
-                             <div>
-                                <h3 className="font-bold mb-2">Sản phẩm</h3>
-                                <div className="bg-gray-50 p-2 rounded-lg flex items-center gap-4">
-                                    <div className="w-20 h-20 flex-shrink-0 bg-white rounded p-1 border cursor-pointer group relative" onClick={() => foundOrder.items[0]?.previewImageUrl && onZoomImage(foundOrder.items[0]?.previewImageUrl)}>
-                                       <img src={foundOrder.items[0]?.previewImageUrl} className="w-full h-full object-contain" alt="product preview"/>
-                                       <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <ZoomIcon />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <p className="font-semibold text-sm">Khung LEGO tùy chỉnh</p>
-                                        <p className="text-xs text-gray-500">Kích thước: {FRAME_OPTIONS.find(f => f.id === foundOrder.items[0]?.frameId)?.name}</p>
-                                    </div>
-                                </div>
+                             <div className="mt-6 pt-4 border-t text-right">
+                                <p className="text-lg">Tổng tiền: <span className="font-bold text-luvin-pink">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(foundOrder.totalPrice)}</span></p>
                             </div>
                         </div>
                     )}
@@ -1762,117 +2432,256 @@ const OrderLookupPage: React.FC<{onZoomImage: (url: string) => void}> = ({onZoom
     );
 };
 
-const ZoomModal: React.FC<{ imageUrl: string; onClose: () => void }> = ({ imageUrl, onClose }) => {
-  return (
-    <div 
-      className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div 
-        className="relative bg-white p-2 sm:p-4 rounded-lg shadow-2xl max-w-3xl w-full max-h-[90vh]"
-        onClick={e => e.stopPropagation()} // Prevent closing when clicking on the image itself
-      >
-        <img src={imageUrl} alt="Zoomed Preview" className="w-full h-full object-contain" />
-        <button 
-          onClick={onClose} 
-          className="absolute -top-3 -right-3 bg-white text-black rounded-full h-8 w-8 flex items-center justify-center text-xl font-bold shadow-lg hover:bg-gray-200 transition-colors"
-          aria-label="Close"
-        >
-          &times;
-        </button>
-      </div>
-    </div>
-  );
+// Helper to categorize parts
+const categorizeParts = (parts: LegoPart[]) => {
+    const categories: typeof LEGO_PARTS = {
+        hair: [], face: [], shirt: [], pants: [], hat: [], accessory: [], pet: []
+    };
+    parts.forEach(p => {
+        if (p.type in categories) {
+            categories[p.type as keyof typeof LEGO_PARTS].push(p);
+        }
+    });
+    return categories;
 };
 
-
 const App: React.FC = () => {
-    const [currentPage, setCurrentPage] = useState<Page>('home');
-    const [config, setConfig] = useState<FrameConfig>(INITIAL_FRAME_CONFIG);
-    const [cartItems, setCartItems] = useState<FrameConfig[]>([]);
-    const [completedOrder, setCompletedOrder] = useState<Order | null>(null);
-    const [isCartOpen, setIsCartOpen] = useState(false);
-    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-    const [zoomedImageUrl, setZoomedImageUrl] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<Page>('home');
+  const [config, setConfig] = useState<FrameConfig>(INITIAL_FRAME_CONFIG);
+  const [cartItems, setCartItems] = useState<FrameConfig[]>([]);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
+  const [zoomedImageUrl, setZoomedImageUrl] = useState<string | null>(null);
+  const [isAppLoading, setIsAppLoading] = useState(true); 
+  
+  const [legoParts, setLegoParts] = useState(LEGO_PARTS);
+  const [backgrounds, setBackgrounds] = useState<PresetBackground[]>([]); 
+  const [templates, setTemplates] = useState<CollectionTemplate[]>(COLLECTION_TEMPLATES);
+  const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>(FEEDBACK_ITEMS);
 
-    const allParts = useMemo(() => Object.values(LEGO_PARTS).flat().reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>), []);
+  // Lazy initialization for logoUrl to prevent FOUC and sync issues
+  const [logoUrl, setLogoUrl] = useState<string>(() => {
+      try {
+          const cached = localStorage.getItem('app_config');
+          return cached ? JSON.parse(cached).logoUrl || "" : "";
+      } catch (e) { return ""; }
+  });
+  
+  const [heroImageUrl, setHeroImageUrl] = useState<string | undefined>(() => {
+      try {
+          const cached = localStorage.getItem('app_config');
+          return cached ? JSON.parse(cached).heroImageUrl : undefined;
+      } catch (e) { return undefined; }
+  });
 
-    const showToast = (message: string, type: 'success' | 'error') => {
-        setToast({ message, type });
-        setTimeout(() => setToast(null), 3000);
-    };
+  const [inspireImageUrl, setInspireImageUrl] = useState<string | undefined>(() => {
+      try {
+          const cached = localStorage.getItem('app_config');
+          return cached ? JSON.parse(cached).inspireImageUrl : undefined;
+      } catch (e) { return undefined; }
+  });
 
-    const handleAddToCart = (itemConfig: FrameConfig, openCartPanel = true) => {
-        setCartItems(prev => [...prev, itemConfig]);
-        showToast('Đã thêm vào giỏ hàng!', 'success');
-        if (openCartPanel) {
-            setIsCartOpen(true);
+  // Use effect to apply favicon if cached
+  useEffect(() => {
+      try {
+          const cached = localStorage.getItem('app_config');
+          if (cached) {
+              const config = JSON.parse(cached);
+              if (config.faviconUrl) {
+                  const link = document.querySelector("link[rel~='icon']");
+                  if (link instanceof HTMLLinkElement) {
+                      link.href = config.faviconUrl;
+                  } else {
+                      const newLink = document.createElement('link');
+                      newLink.rel = 'icon';
+                      newLink.href = config.faviconUrl;
+                      document.head.appendChild(newLink);
+                  }
+              }
+          }
+      } catch(e) {}
+  }, []);
+
+  useEffect(() => {
+      const fetchData = async () => {
+          try {
+            const [parts, bgs, storeConfig, tpls, fbs] = await Promise.all([
+                getAllParts(), 
+                getAllBackgrounds(), 
+                getStoreConfig(),
+                getAllTemplates(),
+                getAllFeedbacks()
+            ]);
+            
+            if (parts && parts.length > 0) {
+                setLegoParts(categorizeParts(parts));
+            }
+            if (bgs && bgs.length > 0) {
+                setBackgrounds(bgs);
+            }
+            if (tpls && tpls.length > 0) {
+                setTemplates(tpls);
+            }
+            if (fbs && fbs.length > 0) {
+                setFeedbacks(fbs);
+            }
+
+            if (storeConfig) {
+                // Save to cache
+                localStorage.setItem('app_config', JSON.stringify(storeConfig));
+
+                if (storeConfig.logoUrl) setLogoUrl(storeConfig.logoUrl);
+                if (storeConfig.heroImageUrl) setHeroImageUrl(storeConfig.heroImageUrl);
+                if (storeConfig.inspireImageUrl) setInspireImageUrl(storeConfig.inspireImageUrl);
+                
+                if (storeConfig.faviconUrl) {
+                    const link = document.querySelector("link[rel~='icon']");
+                    if (link instanceof HTMLLinkElement) {
+                        link.href = storeConfig.faviconUrl;
+                    } else {
+                        const newLink = document.createElement('link');
+                        newLink.rel = 'icon';
+                        newLink.href = storeConfig.faviconUrl;
+                        document.head.appendChild(newLink);
+                    }
+                }
+            }
+          } catch (error) {
+              console.error("Initial fetch error:", error);
+          } finally {
+              setIsAppLoading(false);
+          }
+      };
+      fetchData();
+  }, []);
+
+  const allParts = useMemo(() => (Object.values(legoParts) as LegoPart[][]).flat().reduce((acc, part) => ({ ...acc, [part.id]: part }), {} as Record<string, LegoPart>), [legoParts]);
+
+  const navigateTo = (page: Page) => {
+    setCurrentPage(page);
+    window.scrollTo(0, 0);
+  };
+
+  useEffect(() => {
+      const checkHash = () => {
+          if (window.location.hash === '#/admin') {
+              setCurrentPage('admin');
+          }
+      };
+      checkHash();
+      window.addEventListener('hashchange', checkHash);
+      return () => window.removeEventListener('hashchange', checkHash);
+  }, []);
+
+  const handleAddToCart = (newConfig: FrameConfig, openCart = true) => {
+    setCartItems(prev => [...prev, newConfig]);
+    if (openCart) setIsCartOpen(true);
+  };
+
+  const handleRemoveCartItem = (index: number) => {
+    setCartItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handlePlaceOrder = async (orderData: Omit<Order, 'status' | 'createdAt'>) => {
+    const res = await createOrder(orderData);
+    if (res.success && res.data) {
+        setCurrentOrder(res.data);
+        
+        // Save to local history for Order Lookup
+        try {
+            const saved = JSON.parse(localStorage.getItem('my_orders') || '[]');
+            const newEntry = { id: res.data.id, date: Date.now() };
+            // Add new entry to start, remove duplicates if any, keep max 5
+            const updated = [newEntry, ...saved.filter((o: any) => o.id !== res.data.id)].slice(0, 5);
+            localStorage.setItem('my_orders', JSON.stringify(updated));
+        } catch (e) {
+            console.error("Failed to save local order history", e);
         }
-    };
 
-    const handleRemoveFromCart = (index: number) => {
-        setCartItems(prev => prev.filter((_, i) => i !== index));
-    };
+        setCartItems([]); 
+        navigateTo('order-confirmation');
+        sendOrderEmail(res.data);
+    } else {
+        alert("Lỗi đặt hàng. Vui lòng thử lại.");
+    }
+  };
 
-    const handlePlaceOrder = (orderData: Omit<Order, 'status'>) => {
-      const order: Order = { ...orderData, status: "Chờ thanh toán" };
-      // This is a bit of a hack since we are modifying an imported constant.
-      // In a real app, this would be an API call and state update.
-      (MOCK_ORDERS as any)[order.id] = order;
-      setCompletedOrder(order);
-      setCartItems([]);
-      navigateTo('order-confirmation');
-    };
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
-    const navigateTo = (page: Page) => {
-        setCurrentPage(page);
-        window.scrollTo(0, 0);
-    };
+  // Even if fetching, show what we have from cache if possible
+  // Only show loading screen if we truly have nothing to show
+  if (isAppLoading && !logoUrl) {
+      return (
+          <div className="min-h-screen flex flex-col items-center justify-center bg-pink-50 text-luvin-pink">
+              <div className="animate-pulse flex flex-col items-center">
+                  <svg className="w-16 h-16 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M12 1.5C12 1.5 12 5.5 15 8.5C18 11.5 22.5 12 22.5 12C22.5 12 18 12.5 15 15.5C12 18.5 12 22.5 12 22.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M12 22.5C12 22.5 12 18.5 9 15.5C6 12.5 1.5 12 1.5 12C1.5 12 6 11.5 9 8.5C12 5.5 12 1.5 12 1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  <span className="font-heading text-2xl tracking-wider">The Luvin</span>
+              </div>
+          </div>
+      )
+  }
 
-    const renderPage = () => {
-        switch (currentPage) {
-            case 'home':
-                return <HomePage navigateTo={navigateTo} />;
-            case 'builder':
-                return <BuilderPage config={config} setConfig={setConfig} navigateTo={navigateTo} onAddToCart={handleAddToCart} showToast={showToast} />;
-            case 'collection':
-                return <CollectionPage navigateTo={navigateTo} setConfig={setConfig} />;
-            case 'order-lookup':
-                return <OrderLookupPage onZoomImage={setZoomedImageUrl} />;
-            case 'cart':
-                return <CartPage cartItems={cartItems} onRemoveItem={handleRemoveFromCart} allParts={allParts} navigateTo={navigateTo} />;
-            case 'checkout':
-                return <CheckoutPage cartItems={cartItems} allParts={allParts} onPlaceOrder={handlePlaceOrder} onZoomImage={setZoomedImageUrl} />;
-            case 'order-confirmation':
-                return <OrderConfirmationPage order={completedOrder} navigateTo={navigateTo} onZoomImage={setZoomedImageUrl} />;
-            default:
-                return <HomePage navigateTo={navigateTo} />;
-        }
-    };
-
-    return (
-        <div className="flex flex-col min-h-screen font-body bg-gray-50">
-            <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} />
-            <main className="flex-grow">
-                {renderPage()}
-            </main>
-            <Footer />
-            <CartPanel 
-                isOpen={isCartOpen}
-                onClose={() => setIsCartOpen(false)}
-                cartItems={cartItems}
-                onRemoveItem={handleRemoveFromCart}
-                allParts={allParts}
-                navigateTo={navigateTo}
-            />
-             {toast && (
-                <div className={`fixed bottom-5 right-5 p-4 rounded-lg shadow-lg text-white ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
-                    {toast.message}
-                </div>
+  return (
+    <div className="min-h-screen flex flex-col font-sans text-gray-900">
+         {currentPage !== 'admin' && (
+             <Header navigateTo={navigateTo} cartCount={cartItems.length} onCartClick={() => setIsCartOpen(true)} logoUrl={logoUrl} />
+        )}
+        
+        <main className="flex-grow">
+            {currentPage === 'home' && <HomePage navigateTo={navigateTo} heroImage={heroImageUrl} inspireImage={inspireImageUrl} feedbacks={feedbacks} templates={templates} />}
+            {currentPage === 'builder' && (
+                <BuilderPage 
+                    config={config} 
+                    setConfig={setConfig} 
+                    navigateTo={navigateTo} 
+                    onAddToCart={handleAddToCart} 
+                    showToast={showToast}
+                    legoParts={legoParts}
+                    backgrounds={backgrounds}
+                />
             )}
-            {zoomedImageUrl && <ZoomModal imageUrl={zoomedImageUrl} onClose={() => setZoomedImageUrl(null)} />}
-        </div>
-    );
+            {currentPage === 'collection' && <CollectionPage navigateTo={navigateTo} setConfig={setConfig} templates={templates} />}
+            {currentPage === 'cart' && <CartPage cartItems={cartItems} onRemoveItem={handleRemoveCartItem} allParts={allParts} navigateTo={navigateTo} />}
+            {currentPage === 'checkout' && <CheckoutPage cartItems={cartItems} allParts={allParts} onPlaceOrder={handlePlaceOrder} onZoomImage={(url) => setZoomedImageUrl(url)} />}
+            {currentPage === 'order-confirmation' && <OrderConfirmationPage order={currentOrder} navigateTo={navigateTo} onZoomImage={(url) => setZoomedImageUrl(url)} />}
+            {currentPage === 'order-lookup' && <OrderLookupPage onZoomImage={(url) => setZoomedImageUrl(url)} />}
+            {currentPage === 'about' && <AboutPage />}
+            {currentPage === 'warranty' && <WarrantyPage />}
+            {currentPage === 'admin' && <AdminPage />}
+        </main>
+
+        {currentPage !== 'admin' && <Footer navigateTo={navigateTo} />}
+
+        <CartPanel 
+            isOpen={isCartOpen} 
+            onClose={() => setIsCartOpen(false)} 
+            cartItems={cartItems} 
+            onRemoveItem={handleRemoveCartItem}
+            allParts={allParts}
+            navigateTo={navigateTo}
+        />
+        
+         {zoomedImageUrl && (
+            <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={() => setZoomedImageUrl(null)}>
+                <img src={zoomedImageUrl} alt="Zoomed" className="max-w-full max-h-full object-contain rounded-lg" />
+                <button className="absolute top-4 right-4 text-white bg-black/50 rounded-full p-2 hover:bg-black/80">&times;</button>
+            </div>
+        )}
+
+        {toast && (
+            <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white font-bold z-50 ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+                {toast.message}
+            </div>
+        )}
+    </div>
+  );
 };
 
 export default App;

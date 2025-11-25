@@ -1,7 +1,8 @@
-// FIX: Removed import of FrameConfig from './App' as it caused a circular dependency and is defined within this file.
 
-// Fix: Define the Page type directly to resolve a circular dependency.
-export type Page = 'home' | 'builder' | 'collection' | 'feedback' | 'order-lookup' | 'contact' | 'cart' | 'checkout' | 'order-confirmation';
+// types.ts
+
+// Danh sách các trang
+export type Page = 'home' | 'builder' | 'collection' | 'feedback' | 'order-lookup' | 'contact' | 'cart' | 'checkout' | 'order-confirmation' | 'admin' | 'about' | 'warranty';
 
 export interface FrameOption {
   id: string;
@@ -19,25 +20,34 @@ export interface OutfitColor {
   name: string;
   hex: string;
   imageUrl: string;
-  price: number; // Additional price for this color
+  price: number; 
+  stock?: number; // undefined = unlimited, 0 = out of stock
 }
 
 export interface LegoPart {
   id: string;
   name: string;
-  price: number; // Base price (for default color)
+  price: number; 
   imageUrl: string;
   type: 'hair' | 'face' | 'shirt' | 'pants' | 'accessory' | 'pet' | 'hat';
   widthCm: number;
   heightCm: number;
   colors?: OutfitColor[];
-  // New metadata for precise hair positioning
-  attach?: { x: number; y: number }; // Attachment point within the image (0-1 scale)
-  slices?: boolean; // Does the hair have a back/front part?
-  dx?: number; // Fine-tuning offset in cm
-  dy?: number; // Fine-tuning offset in cm
+  attach?: { x: number; y: number }; 
+  slices?: boolean; 
+  dx?: number; 
+  dy?: number; 
+  stock?: number; // undefined = unlimited, 0 = out of stock
 }
 
+// Interface mới cho Background
+export interface PresetBackground {
+    id: string;
+    name: string;
+    url: string;
+    category: string;
+    type: 'square' | 'rectangle'; // Phân loại cho khung vuông hoặc chữ nhật
+}
 
 export interface LegoCharacterConfig {
   id: number;
@@ -49,39 +59,40 @@ export interface LegoCharacterConfig {
   selectedShirtColor?: OutfitColor; 
   selectedPantsColor?: OutfitColor;
   customPrintPrice?: number;
-  x: number; // percentage from left
-  y: number; // percentage from top
-  rotation: number; // degrees
-  scale: number; // multiplier
-  previousHair?: LegoPart; // To restore hair when hat is removed
+  x: number; 
+  y: number; 
+  rotation: number; 
+  scale: number; 
+  previousHair?: LegoPart; 
 }
 
 export interface TextConfig {
   id: number;
   content: string;
   font: string;
-  size: number; // Now a relative size, e.g., 1-100
+  size: number; 
   color: string;
-  x: number; // percentage from left
-  y: number; // percentage from top
-  rotation: number; // degrees
-  scale: number; // multiplier
+  x: number; 
+  y: number; 
+  rotation: number; 
+  scale: number; 
   background: boolean;
   textAlign?: 'left' | 'center' | 'right';
-  width?: number; // percentage of parent width for resizable text box
+  width?: number; 
 }
 
 export interface DraggableItem {
     id: number;
-    partId: string; // For accessories/pets, it's the LegoPart ID. For charms, it's the data URL.
+    partId: string; 
     type: 'accessory' | 'pet' | 'charm';
-    x: number; // percentage from left
-    y: number; // percentage from top
-    rotation: number; // degrees
-    scale: number; // multiplier
+    x: number; 
+    y: number; 
+    rotation: number; 
+    scale: number; 
+    isFlipped?: boolean; // Added for flip functionality
+    selectedColor?: OutfitColor; // Added for accessory color variants
 }
 
-// FIX: Define the missing BackgroundConfig interface.
 export interface BackgroundConfig {
   type: 'color' | 'image' | 'upload';
   value: string;
@@ -98,6 +109,7 @@ export interface FrameConfig {
 
 export interface Order {
   id: string;
+  createdAt: number; // Timestamp chính xác khi tạo đơn
   status: string;
   customer: {
     name: string;
@@ -120,4 +132,28 @@ export interface Order {
   };
   totalPrice: number;
   amountToPay: number;
+  
+  // --- Admin Fields ---
+  internalNotes?: string; // Ghi chú nội bộ của Admin
+  isUrgent?: boolean;     // Cờ đánh dấu đơn gấp thủ công
+  adminDeadline?: string; // Deadline do admin đặt
+  
+  // --- Warehouse Fields ---
+  packedBy?: string;      // Email người đóng gói
+  packedAt?: string;      // Thời gian đóng gói ISO string
+}
+
+// NEW INTERFACES FOR DYNAMIC CONTENT
+export interface CollectionTemplate {
+    id: string;
+    name: string;
+    imageUrl: string;
+    config: FrameConfig;
+}
+
+export interface FeedbackItem {
+    id: string;
+    name: string;
+    text: string;
+    imageUrl: string;
 }
