@@ -51,8 +51,9 @@ const calculatePrice = (config: FrameConfig, allParts: Record<string, LegoPart>)
         }
     });
 
-    const hairPrice = config.characters.reduce((acc, char) => acc + (char.hair?.price || 0), 0);
-    if(hairPrice > 0) { breakdown.push({ label: 'Tóc', value: hairPrice }); total += hairPrice; }
+    // Updated hair price calculation to include selected hair color price
+    const hairPrice = config.characters.reduce((acc, char) => acc + (char.hair?.price || 0) + (char.selectedHairColor?.price || 0), 0);
+    if(hairPrice > 0) { breakdown.push({ label: 'Tóc & Màu', value: hairPrice }); total += hairPrice; }
 
     const hatPrice = config.characters.reduce((acc, char) => acc + (char.hat?.price || 0), 0);
     if(hatPrice > 0) { breakdown.push({ label: 'Mũ', value: hatPrice }); total += hatPrice; }
@@ -141,64 +142,35 @@ const StepIndicator: React.FC<{ currentStep: number; setStep: (step: number) => 
 
 const Step1Frame: React.FC<{ config: FrameConfig; setConfig: React.Dispatch<React.SetStateAction<FrameConfig>> }> = ({ config, setConfig }) => {
   const selectedFrame = FRAME_OPTIONS.find(f => f.id === config.frameId) || FRAME_OPTIONS[0];
-  
   return (
     <div className="space-y-4">
-      <div className="p-4 border border-gray-200 rounded-lg bg-white">
-        <h4 className="font-bold text-gray-800 mb-3 uppercase text-sm">1. Chọn kích thước khung</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="p-4 border border-gray-200 rounded-lg">
+        <h4 className="font-bold text-gray-800 mb-3">CHỌN KÍCH THƯỚC</h4>
+        <div className="grid grid-cols-3 gap-3">
           {FRAME_OPTIONS.map(frame => (
             <button
               key={frame.id}
               onClick={() => setConfig(prev => ({ ...prev, frameId: frame.id }))}
-              className={`relative border-2 rounded-xl p-3 flex flex-col items-center gap-3 transition-all group ${
-                config.frameId === frame.id 
-                  ? 'border-luvin-pink bg-pink-50 shadow-sm' 
-                  : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+              className={`border rounded-lg py-2 px-1 text-xs sm:text-sm font-semibold transition-all duration-200 flex flex-col items-center justify-center h-16 ${
+                config.frameId === frame.id ? 'bg-luvin-pink text-gray-800 border-luvin-pink' : 'bg-white text-gray-700 border-gray-300 hover:border-gray-500'
               }`}
             >
-              <div className="w-full aspect-square bg-gray-100 rounded-lg overflow-hidden relative">
-                 {/* Placeholder for Image if not available */}
-                 {frame.imageUrl && !frame.imageUrl.includes('placehold') ? (
-                     <img src={frame.imageUrl} alt={frame.name} className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" />
-                 ) : (
-                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50">
-                        <span className="text-2xl mb-1">🖼️</span>
-                        <span className="text-[10px]">Ảnh minh họa</span>
-                     </div>
-                 )}
-                 
-                 {config.frameId === frame.id && (
-                    <div className="absolute top-2 right-2 bg-luvin-pink text-white rounded-full p-1 shadow-md">
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                    </div>
-                 )}
-              </div>
-              
-              <div className="text-center w-full">
-                 <h5 className="font-bold text-gray-800 text-sm">{frame.name}</h5>
-                 <p className="text-sm font-bold text-luvin-pink mt-0.5">{formatCurrency(frame.price)}</p>
-                 <p className="text-[10px] text-gray-500 mt-1 line-clamp-2 min-h-[2.5em]">{frame.description}</p>
-              </div>
+              <span>{frame.name}</span>
+              <span className="font-normal opacity-80 mt-1">{formatCurrency(frame.price)}</span>
             </button>
           ))}
         </div>
       </div>
-      
        {selectedFrame && (
-        <div className="p-4 border border-gray-200 rounded-lg bg-gray-50">
-            <h4 className="font-bold text-gray-800 mb-3 uppercase text-sm">Giá cơ bản bao gồm</h4>
-            <ul className="text-sm list-disc list-inside text-gray-600 space-y-1.5 ml-1">
-                <li>1 Khung ảnh composite cao cấp ({selectedFrame.name}).</li>
+        <div className="p-4 border border-gray-200 rounded-lg">
+            <h4 className="font-bold text-gray-800 mb-3">GIÁ CƠ BẢN BAO GỒM</h4>
+            <ul className="text-sm list-disc list-inside text-gray-600 space-y-1">
+                <li>1 Khung ảnh composite cao cấp.</li>
                 <li>1 Nền tùy chọn (mẫu có sẵn hoặc ảnh của bạn).</li>
                 <li>Miễn phí thêm chữ & ảnh nhỏ trang trí.</li>
                 <li>Hộp quà & thiệp viết tay theo yêu cầu.</li>
             </ul>
-            <div className="mt-3 pt-3 border-t border-gray-200">
-                <p className="text-xs text-amber-600 italic font-medium bg-amber-50 inline-block px-2 py-1 rounded">
-                    ℹ️ Lưu ý: Giá chưa bao gồm nhân vật LEGO và phụ kiện.
-                </p>
-            </div>
+            <p className="text-xs text-gray-500 mt-2 italic">Lưu ý: Giá chưa bao gồm nhân vật LEGO và phụ kiện.</p>
         </div>
       )}
     </div>
@@ -451,6 +423,7 @@ const Step3Characters: React.FC<{
             scale: 1,
             selectedShirtColor: legoParts.shirt[0]?.colors?.[0],
             selectedPantsColor: legoParts.pants[0]?.colors?.[0],
+            selectedHairColor: legoParts.hair[0]?.colors?.[0],
         };
         setConfig(prev => ({ ...prev, characters: [...prev.characters, newCharacter] }));
         setActiveCharId(newId);
@@ -480,6 +453,7 @@ const Step3Characters: React.FC<{
 
                     if (part.type === 'shirt') newChar.selectedShirtColor = partColors?.[0];
                     if (part.type === 'pants') newChar.selectedPantsColor = partColors?.[0];
+                    if (part.type === 'hair') newChar.selectedHairColor = partColors?.[0];
                     
                     if (part.type === 'hair') {
                         newChar.hat = undefined;
@@ -533,9 +507,13 @@ const Step3Characters: React.FC<{
       setPrintDialogCharId(null);
     };
 
-    const handleColorSelect = (partType: 'shirt' | 'pants', color: OutfitColor) => {
+    const handleColorSelect = (partType: 'shirt' | 'pants' | 'hair', color: OutfitColor) => {
         if (!activeCharId) return;
-        const key = partType === 'shirt' ? 'selectedShirtColor' : 'selectedPantsColor';
+        let key: keyof LegoCharacterConfig;
+        if (partType === 'shirt') key = 'selectedShirtColor';
+        else if (partType === 'pants') key = 'selectedPantsColor';
+        else key = 'selectedHairColor';
+
         setConfig(prev => ({
             ...prev,
             characters: prev.characters.map(c => c.id === activeCharId ? { ...c, [key]: color } : c)
@@ -589,6 +567,7 @@ const Step3Characters: React.FC<{
 
                     newChar.selectedShirtColor = getRandomColor(shirtColors) || shirtColors?.[0];
                     newChar.selectedPantsColor = getRandomColor(pantsColors) || pantsColors?.[0];
+                    newChar.selectedHairColor = getRandomColor(newChar.hair?.colors) || newChar.hair?.colors?.[0];
 
                     return newChar;
                 }
@@ -614,6 +593,9 @@ const Step3Characters: React.FC<{
 
     const activePartColors = useMemo(() => {
         if (!activeCharacter) return null;
+        if (activePartType === 'hair') {
+             return activeCharacter.hair?.colors || null;
+        }
         if (activePartType === 'shirt') {
             const part = activeCharacter.shirt;
             if (part?.colors && part.colors.length > 0) return part.colors;
@@ -749,6 +731,22 @@ const Step3Characters: React.FC<{
                                key={color.name}
                                onClick={() => handleColorSelect('pants', color)}
                                className={`w-8 h-8 rounded-full border-2 transition-all ${activeCharacter.selectedPantsColor?.imageUrl === color.imageUrl ? 'border-luvin-pink scale-110' : 'border-white'}`}
+                               style={{ backgroundColor: color.hex }}
+                               title={`${color.name} (${formatCurrency(color.price)})`}
+                             />
+                           ))}
+                         </div>
+                      </div>
+                    )}
+                    {(activePartType === 'hair' && activePartColors) && (
+                      <div className="mt-4 pt-4 border-t">
+                        <label className="text-sm font-bold text-gray-600 block mb-2">Chỉnh màu tóc</label>
+                         <div className="flex flex-wrap gap-2">
+                           {activePartColors.map(color => (
+                             <button
+                               key={color.name}
+                               onClick={() => handleColorSelect('hair', color)}
+                               className={`w-8 h-8 rounded-full border-2 transition-all ${activeCharacter.selectedHairColor?.imageUrl === color.imageUrl ? 'border-luvin-pink scale-110' : 'border-white'}`}
                                style={{ backgroundColor: color.hex }}
                                title={`${color.name} (${formatCurrency(color.price)})`}
                              />
@@ -970,8 +968,7 @@ const Footer: React.FC<{ navigateTo: (page: Page) => void }> = ({ navigateTo }) 
   );
 };
 
-// ... (Rest of components: AboutPage, WarrantyPage, HomePage, TextEditor) ...
-// ... skipping redundant parts for brevity ...
+// --- NEW PAGES ---
 
 const AboutPage: React.FC = () => {
     return (
@@ -1123,7 +1120,7 @@ const HomePage: React.FC<{
           <div className="hidden md:block bg-cover bg-center" style={heroStyle}></div>
           <div className="flex flex-col justify-center items-center p-8 text-center bg-white">
              <h1 className="text-5xl font-heading text-luvin-pink">The Luvin</h1>
-             <p className="font-script text-3xl my-4 text-gray-600">self love, self care</p>
+             <p className="font-script text-3xl my-4 text-gray-600">Unique for every momment</p>
              <button 
                onClick={() => navigateTo('builder')}
                className="mt-4 border-2 border-luvin-pink text-luvin-pink font-bold py-2 px-8 rounded-full hover:bg-luvin-pink hover:text-gray-800 transition-colors duration-300 font-body tracking-wider"
@@ -1505,14 +1502,10 @@ const BuilderPage: React.FC<{
 
   const handleResetDesign = () => {
       if (confirm("Bạn có chắc muốn làm mới thiết kế? Mọi thay đổi sẽ bị xóa.")) {
-          // Deep clone INITIAL_FRAME_CONFIG to avoid reference issues if it was mutated
-          const cleanConfig = JSON.parse(JSON.stringify(INITIAL_FRAME_CONFIG));
-          
           setConfig(prev => ({
-              ...cleanConfig,
-              frameId: prev.frameId, // Maintain the current frame size selection
+              ...INITIAL_FRAME_CONFIG,
+              frameId: prev.frameId, // Keep size
           }));
-          setSelectedItemId(null);
       }
   };
 

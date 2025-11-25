@@ -3,39 +3,9 @@ import type { FrameOption, LegoPart, FrameConfig, OutfitColor, Order } from './t
 
 
 export const FRAME_OPTIONS: FrameOption[] = [
-  { 
-    id: 'sm', 
-    name: '15x15cm', 
-    frameWidthCm: 15, 
-    frameHeightCm: 15, 
-    backgroundWidthCm: 12, 
-    backgroundHeightCm: 12, 
-    price: 210000, 
-    imageUrl: 'https://res.cloudinary.com/dbdqd93km/image/upload/v1/frames/15x15_preview.png', // Placeholder, bạn có thể thay link ảnh thật sau
-    description: 'Nhỏ gọn, tinh tế' 
-  },
-  { 
-    id: 'md', 
-    name: '14.8x21cm', 
-    frameWidthCm: 14.8, 
-    frameHeightCm: 21, 
-    backgroundWidthCm: 11.8, 
-    backgroundHeightCm: 18, 
-    price: 220000, 
-    imageUrl: 'https://res.cloudinary.com/dbdqd93km/image/upload/v1/frames/14x21_preview.png', // Placeholder
-    description: 'Thanh lịch, đứng dáng' 
-  },
-  { 
-    id: 'lg', 
-    name: '23x23cm', 
-    frameWidthCm: 23, 
-    frameHeightCm: 23, 
-    backgroundWidthCm: 20, 
-    backgroundHeightCm: 20, 
-    price: 230000, 
-    imageUrl: 'https://res.cloudinary.com/dbdqd93km/image/upload/v1/frames/23x23_preview.png', // Placeholder
-    description: 'Sang trọng, ấn tượng' 
-  },
+  { id: 'sm', name: '15x15cm', frameWidthCm: 15, frameHeightCm: 15, backgroundWidthCm: 12, backgroundHeightCm: 12, price: 210000, imageUrl: '', description: 'Nhỏ gọn, tinh tế' },
+  { id: 'md', name: '14.8x21cm', frameWidthCm: 14.8, frameHeightCm: 21, backgroundWidthCm: 11.8, backgroundHeightCm: 18, price: 220000, imageUrl: '', description: 'Thanh lịch, đứng dáng' },
+  { id: 'lg', name: '23x23cm', frameWidthCm: 23, frameHeightCm: 23, backgroundWidthCm: 20, backgroundHeightCm: 20, price: 230000, imageUrl: '', description: 'Sang trọng, ấn tượng' },
 ];
 
 export const defaultShirtColors: OutfitColor[] = [

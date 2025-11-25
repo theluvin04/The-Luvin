@@ -16,7 +16,14 @@ export const getAllParts = async (): Promise<LegoPart[]> => {
         querySnapshot.forEach((doc) => {
             parts.push(doc.data() as LegoPart);
         });
-        return parts;
+        
+        // Sắp xếp theo trường 'order' (nếu có), sau đó đến tên
+        return parts.sort((a, b) => {
+            const orderA = a.order ?? 9999; // Default to end if undefined
+            const orderB = b.order ?? 9999;
+            if (orderA !== orderB) return orderA - orderB;
+            return a.name.localeCompare(b.name);
+        });
     } catch (error: any) {
         if (error.code === 'permission-denied') {
              console.warn("Firestore: Không có quyền đọc 'lego_parts'. Dùng dữ liệu mẫu.");
@@ -63,9 +70,6 @@ export const deletePart = async (partId: string) => {
 };
 
 // 5. HÀM MỚI: Điều chỉnh tồn kho hàng loạt
-// usageMap: { partId: quantityChange }
-// quantityChange < 0: Trừ kho (Khách mua)
-// quantityChange > 0: Cộng kho (Hoàn tác, hủy đơn)
 export const adjustStock = async (usageMap: Record<string, number>) => {
     try {
         const batch = writeBatch(db);
@@ -75,24 +79,6 @@ export const adjustStock = async (usageMap: Record<string, number>) => {
             if (change === 0) continue;
 
             const partRef = doc(db, COLLECTION_NAME, partId);
-            // Chúng ta cần kiểm tra xem sản phẩm có quản lý tồn kho không (stock != undefined)
-            // Tuy nhiên, Firestore `increment` hoạt động tốt, nếu field không tồn tại nó sẽ tạo mới.
-            // Để an toàn, ta nên chỉ update nếu sản phẩm tồn tại và có field stock.
-            // Nhưng để tối ưu hiệu năng batch, ta sẽ giả định admin đã setup đúng.
-            // Lưu ý: increment hoạt động atomic.
-            
-            // Để tránh cập nhật các sản phẩm "Vô hạn" (stock = undefined hoặc null),
-            // Ta cần đọc trước hoặc chấp nhận rủi ro.
-            // Cách tốt nhất ở đây: Đọc document, kiểm tra, sau đó add vào batch.
-            // Nhưng đọc nhiều doc sẽ tốn quota read.
-            // Giải pháp: updateDoc chỉ update nếu doc tồn tại.
-            
-            // Tạm thời: Logic client (AdminPage/OrderService) đã lọc các part cần update.
-            // Ở đây chỉ thực hiện lệnh.
-            
-            // CHÚ Ý QUAN TRỌNG: Nếu stock đang là undefined (vô hạn), increment sẽ biến nó thành NaN hoặc số.
-            // Cần kiểm tra trước khi update. Do batch không cho đọc, ta sẽ đọc từng doc trước (chấp nhận tốn read 1 chút để an toàn).
-            
             const partDoc = await getDoc(partRef);
             if (partDoc.exists()) {
                 const data = partDoc.data();
@@ -114,7 +100,37 @@ export const adjustStock = async (usageMap: Record<string, number>) => {
     }
 };
 
-// 6. HÀM ĐẶC BIỆT: Đẩy dữ liệu mẫu từ constants.tsx lên Firebase (Chạy 1 lần đầu)
+// 6. HÀM MỚI: Lưu thứ tự sắp xếp sản phẩm
+export const saveProductOrder = async (parts: LegoPart[]) => {
+    try {
+        const batch = writeBatch(db);
+        
+        // Firestore batch limit is 500. If more than 500 parts, we need multiple batches.
+        // For simplicity assuming < 500 for now or simple chunking.
+        
+        let operationCount = 0;
+        
+        parts.forEach((part, index) => {
+            // Chỉ update nếu order thay đổi để tiết kiệm write
+            if (part.order !== index) {
+                const partRef = doc(db, COLLECTION_NAME, part.id);
+                batch.update(partRef, { order: index });
+                operationCount++;
+            }
+        });
+
+        if (operationCount > 0) {
+            await batch.commit();
+            console.log(`Đã cập nhật vị trí cho ${operationCount} sản phẩm.`);
+        }
+        return true;
+    } catch (error) {
+        console.error("Lỗi lưu thứ tự sản phẩm:", error);
+        return false;
+    }
+};
+
+// 7. HÀM ĐẶC BIỆT: Đẩy dữ liệu mẫu từ constants.tsx lên Firebase
 export const seedDatabase = async () => {
     try {
         console.log("Bắt đầu đồng bộ dữ liệu mẫu...");

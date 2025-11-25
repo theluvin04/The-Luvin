@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getAllOrders, updateOrder, deleteOrder, countPartsInOrder } from '../services/orderService';
-import { getAllParts, addPart, updatePart, deletePart, seedDatabase, adjustStock } from '../services/productService';
+import { getAllParts, addPart, updatePart, deletePart, seedDatabase, adjustStock, saveProductOrder } from '../services/productService';
 import { getAllBackgrounds, addBackground, updateBackground, deleteBackground, seedBackgrounds } from '../services/backgroundService';
 import { getAllTemplates, addTemplate, updateTemplate, deleteTemplate, seedTemplates } from '../services/templateService';
 import { getAllFeedbacks, addFeedback, updateFeedback, deleteFeedback, seedFeedbacks } from '../services/feedbackService';
 import { uploadToCloudinary } from '../services/uploadService'; // Import hàm upload
 import { updateStoreConfig, getStoreConfig, StoreConfig } from '../services/configService'; // Import config service
 import { auth } from '../config/firebase';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth'; 
 import type { Order, LegoPart, FrameConfig, LegoCharacterConfig, DraggableItem, PresetBackground, OutfitColor, CollectionTemplate, FeedbackItem } from '../types';
 import { FRAME_OPTIONS, LEGO_PARTS, INITIAL_FRAME_CONFIG } from '../constants';
 
@@ -152,7 +153,7 @@ const ProductForm: React.FC<{
             const stockVal = value === '' ? undefined : Number(value);
             setFormData(prev => ({ ...prev, stock: stockVal }));
         } else {
-            setFormData(prev => ({ ...prev, [name]: name === 'price' || name === 'widthCm' || name === 'heightCm' ? Number(value) : value }));
+            setFormData(prev => ({ ...prev, [name]: value === 'widthCm' || value === 'heightCm' ? Number(value) : (name === 'price' ? Number(value) : value) }));
         }
     };
 
@@ -274,16 +275,11 @@ const ProductForm: React.FC<{
     };
 
     const handleSave = () => {
-        // Include colors in the saved data
-        // FIX: Firebase throws error on 'undefined' values. 
-        // JSON.parse(JSON.stringify(...)) removes keys with undefined values.
-        // This effectively treats undefined as "field missing", which matches our optional stock logic.
         const dataToSave = { ...formData, colors: colors };
         const cleanData = JSON.parse(JSON.stringify(dataToSave));
         onSave(cleanData);
     };
 
-    // Allow colors for almost all types now including hair and hat
     const canHaveColors = ['shirt', 'pants', 'accessory', 'pet', 'hair', 'hat'].includes(formData.type);
 
     return (
@@ -762,6 +758,10 @@ const AdminPage: React.FC = () => {
     const [editForm, setEditForm] = useState<Order | null>(null);
     const [addingAccessoryToItemIndex, setAddingAccessoryToItemIndex] = useState<number | null>(null);
 
+    // New state for product order editing
+    const [draggedProductIndex, setDraggedProductIndex] = useState<number | null>(null);
+    const [isSavingOrder, setIsSavingOrder] = useState(false);
+
     // Updated role logic to be more explicit
     const role = useMemo(() => {
         if (!currentUser || !currentUser.email) return null;
@@ -810,12 +810,13 @@ const AdminPage: React.FC = () => {
     const [adminDeadlineInput, setAdminDeadlineInput] = useState('');
     const [sortMode, setSortMode] = useState<'newest' | 'urgent'>('newest');
     const [filterStatus, setFilterStatus] = useState<string>('all');
+    const [orderSearchTerm, setOrderSearchTerm] = useState('');
 
     const [storeConfig, setStoreConfig] = useState<StoreConfig>({});
     const [uploadingField, setUploadingField] = useState<string | null>(null);
 
     useEffect(() => {
-        const unsubscribe = auth.onAuthStateChanged((user) => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
             setIsAuthChecking(false); // Auth check done
             if (user) {
                 setCurrentUser(user);
@@ -849,13 +850,13 @@ const AdminPage: React.FC = () => {
         e.preventDefault();
         setLoginError('');
         try {
-            await auth.signInWithEmailAndPassword(email, loginPass);
+            await signInWithEmailAndPassword(auth, email, loginPass);
         } catch (error: any) {
             setLoginError("Thông tin đăng nhập không chính xác.");
         }
     };
 
-    const handleLogout = async () => { await auth.signOut(); };
+    const handleLogout = async () => { await signOut(auth); };
     const fetchOrders = async () => { const data = await getAllOrders(); setOrders(data); };
     const fetchProducts = async () => { const data = await getAllParts(); setProducts(data); };
     const fetchBackgrounds = async () => { const data = await getAllBackgrounds(); setBackgrounds(data); };
@@ -1366,6 +1367,15 @@ const AdminPage: React.FC = () => {
             result = result.filter(o => o.status === filterStatus);
         }
 
+        // Filter by Search Term
+        if (orderSearchTerm) {
+            const lowerTerm = orderSearchTerm.toLowerCase().trim();
+            result = result.filter(o => 
+                o.id.toLowerCase().includes(lowerTerm) || 
+                o.customer.phone.includes(lowerTerm)
+            );
+        }
+
         if (sortMode === 'urgent') {
             result.sort((a, b) => {
                 // 1. Absolute Priority: isUrgent flag
@@ -1392,7 +1402,7 @@ const AdminPage: React.FC = () => {
             result.sort((a, b) => ((b.createdAt || 0) - (a.createdAt || 0)));
         }
         return result;
-    }, [orders, sortMode, filterStatus]);
+    }, [orders, sortMode, filterStatus, orderSearchTerm]);
 
     const partsByType = useMemo(() => {
         const types: Record<string, LegoPart[]> = {};
@@ -1410,6 +1420,62 @@ const AdminPage: React.FC = () => {
         const DESCRIPTION = encodeURIComponent(order.id.replace('#', ''));
         const amount = order.amountToPay || order.totalPrice;
         return `https://img.vietqr.io/image/${BANK_ID}-${ACCOUNT_NO}-${TEMPLATE}.png?amount=${amount}&addInfo=${DESCRIPTION}&accountName=TheLuvin`;
+    };
+
+    // --- PRODUCT DRAG AND DROP HANDLERS ---
+    const handleProductDragStart = (e: React.DragEvent, index: number) => {
+        // Disable drag if user is searching, to prevent ordering confusion
+        if (productSearch) {
+            e.preventDefault();
+            return;
+        }
+        setDraggedProductIndex(index);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleProductDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+    };
+
+    const handleProductDrop = (e: React.DragEvent, targetIndex: number) => {
+        e.preventDefault();
+        if (draggedProductIndex === null || draggedProductIndex === targetIndex) return;
+
+        // Clone full list
+        const newProducts = [...products];
+        
+        // Map filtered indices back to global indices if category filter is on
+        let globalDragIndex = draggedProductIndex;
+        let globalTargetIndex = targetIndex;
+
+        // If filtering by category, we need to find the item in the main list
+        if (productCategory !== 'all') {
+            const draggedItem = filteredProducts[draggedProductIndex];
+            const targetItem = filteredProducts[targetIndex];
+            globalDragIndex = newProducts.findIndex(p => p.id === draggedItem.id);
+            globalTargetIndex = newProducts.findIndex(p => p.id === targetItem.id);
+        }
+
+        // Remove dragged item
+        const [movedItem] = newProducts.splice(globalDragIndex, 1);
+        // Insert at new position
+        newProducts.splice(globalTargetIndex, 0, movedItem);
+
+        // Update state instantly for visual feedback
+        setProducts(newProducts);
+        setDraggedProductIndex(null);
+    };
+
+    const handleSaveOrder = async () => {
+        setIsSavingOrder(true);
+        const success = await saveProductOrder(products);
+        setIsSavingOrder(false);
+        if (success) {
+            alert('Đã lưu vị trí sản phẩm!');
+        } else {
+            alert('Lỗi lưu vị trí. Vui lòng thử lại.');
+        }
     };
 
     const TopItemsCard = ({ title, data }: { title: string, data: Record<string, number> }) => (
@@ -1660,6 +1726,15 @@ const AdminPage: React.FC = () => {
                                 <div className="flex gap-2 w-full">
                                     <button onClick={() => setSortMode('newest')} className={`flex-1 py-1.5 text-xs font-semibold rounded transition-colors ${sortMode === 'newest' ? 'bg-white text-gray-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-900'}`}>Mới nhất</button>
                                     <button onClick={() => setSortMode('urgent')} className={`flex-1 py-1.5 text-xs font-semibold rounded transition-colors ${sortMode === 'urgent' ? 'bg-red-50 text-red-600 border border-red-100' : 'text-gray-500 hover:text-gray-900'}`}>Cần gấp</button>
+                                    <div className="flex-1 relative">
+                                        <input 
+                                            type="text" 
+                                            placeholder="Tìm mã đơn, SĐT..." 
+                                            value={orderSearchTerm}
+                                            onChange={(e) => setOrderSearchTerm(e.target.value)}
+                                            className="w-full h-full pl-2 pr-2 py-1.5 text-xs border border-gray-300 rounded focus:border-gray-900 outline-none bg-white"
+                                        />
+                                    </div>
                                 </div>
                                 <div 
                                     className="flex gap-1 overflow-x-auto no-scrollbar pb-1 cursor-grab active:cursor-grabbing"
@@ -1979,14 +2054,34 @@ const AdminPage: React.FC = () => {
                                         </select>
                                     </div>
                                     <div className="flex gap-2 w-full sm:w-auto justify-end">
+                                        {/* Show Save Order Button only if not searching and items exist */}
+                                        <button 
+                                            onClick={handleSaveOrder} 
+                                            className="px-3 py-2 text-sm font-bold text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 whitespace-nowrap"
+                                            disabled={isSavingOrder || productSearch.length > 0}
+                                            title="Lưu thứ tự sắp xếp hiện tại"
+                                        >
+                                            {isSavingOrder ? 'Đang lưu...' : 'Lưu vị trí'}
+                                        </button>
                                         <button onClick={handleSeedData} className="px-3 py-2 text-xs font-bold text-gray-600 bg-gray-100 rounded hover:bg-gray-200 whitespace-nowrap">Reset Data</button>
                                         <button onClick={() => setIsEditingProduct(true)} className="px-3 py-2 text-sm font-bold text-white bg-green-600 rounded hover:bg-green-700 whitespace-nowrap">+ Thêm</button>
                                     </div>
                                 </div>
+                                <p className="text-xs text-gray-500 mb-2 italic">
+                                    {productSearch ? "Đang tìm kiếm (Kéo thả bị tắt)" : "Kéo thả thẻ sản phẩm để sắp xếp lại vị trí. Nhấn 'Lưu vị trí' để lưu thay đổi."}
+                                </p>
                                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                                    {filteredProducts.map(part => (
-                                        <div key={part.id} className="bg-white border rounded-lg p-3 group relative hover:shadow-md transition-all">
-                                            <div className="aspect-square bg-gray-50 rounded mb-2 flex items-center justify-center p-2">
+                                    {filteredProducts.map((part, index) => (
+                                        <div 
+                                            key={part.id} 
+                                            className={`bg-white border rounded-lg p-3 group relative hover:shadow-md transition-all ${draggedProductIndex === index ? 'opacity-50 border-dashed border-gray-400' : ''}`}
+                                            draggable={!productSearch} // Disable drag when searching
+                                            onDragStart={(e) => handleProductDragStart(e, index)}
+                                            onDragOver={handleProductDragOver}
+                                            onDrop={(e) => handleProductDrop(e, index)}
+                                            style={{ cursor: productSearch ? 'default' : 'move' }}
+                                        >
+                                            <div className="aspect-square bg-gray-50 rounded mb-2 flex items-center justify-center p-2 pointer-events-none">
                                                 <img src={part.imageUrl} className="max-w-full max-h-full object-contain" />
                                             </div>
                                             <h4 className="font-bold text-sm truncate" title={part.name}>{part.name}</h4>

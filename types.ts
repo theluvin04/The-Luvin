@@ -38,6 +38,7 @@ export interface LegoPart {
   dx?: number; 
   dy?: number; 
   stock?: number; // undefined = unlimited, 0 = out of stock
+  order?: number; // For sorting display order
 }
 
 // Interface mới cho Background
@@ -58,6 +59,7 @@ export interface LegoCharacterConfig {
   hat?: LegoPart;
   selectedShirtColor?: OutfitColor; 
   selectedPantsColor?: OutfitColor;
+  selectedHairColor?: OutfitColor;
   customPrintPrice?: number;
   x: number; 
   y: number; 
