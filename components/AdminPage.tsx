@@ -1431,6 +1431,8 @@ const AdminPage: React.FC = () => {
         }
         setDraggedProductIndex(index);
         e.dataTransfer.effectAllowed = "move";
+        // Added setData for Firefox compatibility
+        e.dataTransfer.setData("text/plain", index.toString());
     };
 
     const handleProductDragOver = (e: React.DragEvent) => {
@@ -1727,12 +1729,15 @@ const AdminPage: React.FC = () => {
                                     <button onClick={() => setSortMode('newest')} className={`flex-1 py-1.5 text-xs font-semibold rounded transition-colors ${sortMode === 'newest' ? 'bg-white text-gray-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-900'}`}>Mới nhất</button>
                                     <button onClick={() => setSortMode('urgent')} className={`flex-1 py-1.5 text-xs font-semibold rounded transition-colors ${sortMode === 'urgent' ? 'bg-red-50 text-red-600 border border-red-100' : 'text-gray-500 hover:text-gray-900'}`}>Cần gấp</button>
                                     <div className="flex-1 relative">
+                                        <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                                            <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                                        </div>
                                         <input 
                                             type="text" 
                                             placeholder="Tìm mã đơn, SĐT..." 
                                             value={orderSearchTerm}
                                             onChange={(e) => setOrderSearchTerm(e.target.value)}
-                                            className="w-full h-full pl-2 pr-2 py-1.5 text-xs border border-gray-300 rounded focus:border-gray-900 outline-none bg-white"
+                                            className="w-full h-full pl-8 pr-2 py-1.5 text-xs border border-gray-300 rounded focus:border-gray-900 outline-none bg-white"
                                         />
                                     </div>
                                 </div>
