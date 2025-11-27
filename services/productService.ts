@@ -16,14 +16,8 @@ export const getAllParts = async (): Promise<LegoPart[]> => {
         querySnapshot.forEach((doc) => {
             parts.push(doc.data() as LegoPart);
         });
-        
-        // Sắp xếp theo trường 'order' (nếu có), sau đó đến tên
-        return parts.sort((a, b) => {
-            const orderA = a.order ?? 9999; // Default to end if undefined
-            const orderB = b.order ?? 9999;
-            if (orderA !== orderB) return orderA - orderB;
-            return a.name.localeCompare(b.name);
-        });
+        // Sort by order if available, otherwise by index/default
+        return parts.sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
     } catch (error: any) {
         if (error.code === 'permission-denied') {
              console.warn("Firestore: Không có quyền đọc 'lego_parts'. Dùng dữ liệu mẫu.");
@@ -38,7 +32,8 @@ export const getAllParts = async (): Promise<LegoPart[]> => {
 export const addPart = async (part: LegoPart) => {
     try {
         // Dùng part.id làm ID document luôn cho dễ quản lý
-        await setDoc(doc(db, COLLECTION_NAME, part.id), part);
+        // Initialize order with a high number or based on count
+        await setDoc(doc(db, COLLECTION_NAME, part.id), { ...part, order: 9999 });
         return true;
     } catch (error) {
         console.error("Lỗi thêm sản phẩm:", error);
@@ -70,6 +65,9 @@ export const deletePart = async (partId: string) => {
 };
 
 // 5. HÀM MỚI: Điều chỉnh tồn kho hàng loạt
+// usageMap: { partId: quantityChange }
+// quantityChange < 0: Trừ kho (Khách mua)
+// quantityChange > 0: Cộng kho (Hoàn tác, hủy đơn)
 export const adjustStock = async (usageMap: Record<string, number>) => {
     try {
         const batch = writeBatch(db);
@@ -79,6 +77,7 @@ export const adjustStock = async (usageMap: Record<string, number>) => {
             if (change === 0) continue;
 
             const partRef = doc(db, COLLECTION_NAME, partId);
+            
             const partDoc = await getDoc(partRef);
             if (partDoc.exists()) {
                 const data = partDoc.data();
@@ -100,37 +99,7 @@ export const adjustStock = async (usageMap: Record<string, number>) => {
     }
 };
 
-// 6. HÀM MỚI: Lưu thứ tự sắp xếp sản phẩm
-export const saveProductOrder = async (parts: LegoPart[]) => {
-    try {
-        const batch = writeBatch(db);
-        
-        // Firestore batch limit is 500. If more than 500 parts, we need multiple batches.
-        // For simplicity assuming < 500 for now or simple chunking.
-        
-        let operationCount = 0;
-        
-        parts.forEach((part, index) => {
-            // Chỉ update nếu order thay đổi để tiết kiệm write
-            if (part.order !== index) {
-                const partRef = doc(db, COLLECTION_NAME, part.id);
-                batch.update(partRef, { order: index });
-                operationCount++;
-            }
-        });
-
-        if (operationCount > 0) {
-            await batch.commit();
-            console.log(`Đã cập nhật vị trí cho ${operationCount} sản phẩm.`);
-        }
-        return true;
-    } catch (error) {
-        console.error("Lỗi lưu thứ tự sản phẩm:", error);
-        return false;
-    }
-};
-
-// 7. HÀM ĐẶC BIỆT: Đẩy dữ liệu mẫu từ constants.tsx lên Firebase
+// 6. HÀM ĐẶC BIỆT: Đẩy dữ liệu mẫu từ constants.tsx lên Firebase (Chạy 1 lần đầu)
 export const seedDatabase = async () => {
     try {
         console.log("Bắt đầu đồng bộ dữ liệu mẫu...");
@@ -138,7 +107,8 @@ export const seedDatabase = async () => {
         
         let count = 0;
         for (const part of allParts) {
-            await setDoc(doc(db, COLLECTION_NAME, part.id), part);
+            // Set default order based on index
+            await setDoc(doc(db, COLLECTION_NAME, part.id), { ...part, order: count });
             count++;
         }
         console.log(`Đã đồng bộ thành công ${count} sản phẩm!`);
@@ -146,5 +116,28 @@ export const seedDatabase = async () => {
     } catch (error) {
         console.error("Lỗi đồng bộ:", error);
         return 0;
+    }
+};
+
+// 7. Hàm sắp xếp lại vị trí sản phẩm
+export const reorderParts = async (parts: LegoPart[]) => {
+    try {
+        // Firebase batch has a limit of 500 operations.
+        // If list is large, we need to chunk it. 
+        // For simplicity, assuming list < 500 items. If more, need to implement chunking.
+        
+        const batch = writeBatch(db);
+        
+        parts.forEach((part, index) => {
+            const partRef = doc(db, COLLECTION_NAME, part.id);
+            batch.update(partRef, { order: index });
+        });
+
+        await batch.commit();
+        console.log("Đã cập nhật thứ tự sản phẩm.");
+        return true;
+    } catch (error) {
+        console.error("Lỗi sắp xếp sản phẩm:", error);
+        return false;
     }
 };

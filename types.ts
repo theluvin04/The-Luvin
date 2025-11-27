@@ -14,6 +14,9 @@ export interface FrameOption {
   price: number;
   imageUrl: string;
   description: string;
+  stock?: number; // Số lượng tồn kho
+  colors: string[]; // Danh sách màu: ['black', 'white', 'wood'...]
+  order?: number;
 }
 
 export interface OutfitColor {
@@ -29,7 +32,7 @@ export interface LegoPart {
   name: string;
   price: number; 
   imageUrl: string;
-  type: 'hair' | 'face' | 'shirt' | 'pants' | 'accessory' | 'pet' | 'hat';
+  type: 'hair' | 'face' | 'shirt' | 'pants' | 'accessory' | 'pet' | 'hat' | 'set'; // Added 'set'
   widthCm: number;
   heightCm: number;
   colors?: OutfitColor[];
@@ -38,7 +41,7 @@ export interface LegoPart {
   dx?: number; 
   dy?: number; 
   stock?: number; // undefined = unlimited, 0 = out of stock
-  order?: number; // For sorting display order
+  order?: number; // Position for sorting
 }
 
 // Interface mới cho Background
@@ -48,6 +51,7 @@ export interface PresetBackground {
     url: string;
     category: string;
     type: 'square' | 'rectangle'; // Phân loại cho khung vuông hoặc chữ nhật
+    order?: number; // Position for sorting
 }
 
 export interface LegoCharacterConfig {
@@ -56,10 +60,10 @@ export interface LegoCharacterConfig {
   face?: LegoPart;
   shirt?: LegoPart;
   pants?: LegoPart;
-  hat?: LegoPart;
+  hat?: LegoPart; // Deprecated in UI logic, kept for type safety
   selectedShirtColor?: OutfitColor; 
   selectedPantsColor?: OutfitColor;
-  selectedHairColor?: OutfitColor;
+  selectedHairColor?: OutfitColor; // Added hair color selection
   customPrintPrice?: number;
   x: number; 
   y: number; 
@@ -86,7 +90,7 @@ export interface TextConfig {
 export interface DraggableItem {
     id: number;
     partId: string; 
-    type: 'accessory' | 'pet' | 'charm' | 'hat';
+    type: 'accessory' | 'pet' | 'charm' | 'hat'; // Added 'hat'
     x: number; 
     y: number; 
     rotation: number; 
@@ -102,11 +106,13 @@ export interface BackgroundConfig {
 
 export interface FrameConfig {
   frameId: string;
+  frameColor?: string; // Changed to string to support dynamic colors from DB
   background: BackgroundConfig;
   characters: LegoCharacterConfig[];
   texts: TextConfig[];
   draggableItems: DraggableItem[];
   previewImageUrl?: string;
+  quantity?: number; // Added quantity field
 }
 
 export interface Order {
