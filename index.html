@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -30,7 +31,7 @@
               'top': '0 -4px 6px -1px rgb(0 0 0 / 0.1), 0 -2px 4px -2px rgb(0 0 0 / 0.1)',
             },
             animation: {
-              marquee: 'marquee 40s linear infinite',
+              marquee: 'marquee 80s linear infinite',
             },
             keyframes: {
               marquee: {
@@ -98,6 +99,29 @@
           -webkit-box-shadow: 0 0 0 30px white inset !important;
           -webkit-text-fill-color: #1f2937 !important;
           transition: background-color 5000s ease-in-out 0s;
+      }
+
+      /* Micro-interaction Animations */
+      @keyframes cart-shake {
+        0%, 100% { transform: rotate(0deg); }
+        20% { transform: rotate(-15deg); }
+        40% { transform: rotate(15deg); }
+        60% { transform: rotate(-10deg); }
+        80% { transform: rotate(10deg); }
+      }
+
+      .animate-cart-shake {
+        animation: cart-shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+      }
+
+      .flying-product-item {
+        position: fixed;
+        z-index: 9999;
+        pointer-events: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        border-radius: 8px;
+        transition: all 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+        opacity: 1;
       }
     </style>
   <script type="importmap">
