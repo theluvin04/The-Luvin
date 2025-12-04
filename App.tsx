@@ -1,6 +1,6 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import type { Page, FrameConfig, LegoPart, Order, PresetBackground, CollectionTemplate, FeedbackItem, FrameOption } from './types';
+import React, { useState, useMemo, useEffect, useLayoutEffect } from 'react';
+import type { Page, FrameConfig, LegoPart, Order, PresetBackground, CollectionTemplate, FeedbackItem, FrameOption, CustomFont } from './types';
 import { 
     LEGO_PARTS, 
     INITIAL_FRAME_CONFIG, 
@@ -8,10 +8,10 @@ import {
     FEEDBACK_ITEMS, 
     FRAME_OPTIONS,
 } from './constants';
-import { createOrder } from './services/orderService'; 
+import { createOrder, updateOrder } from './services/orderService'; 
 import { getAllParts } from './services/productService'; 
 import { getAllBackgrounds } from './services/backgroundService'; 
-import { getStoreConfig } from './services/configService'; 
+import { getStoreConfig, DEFAULT_THEME, StoreConfig } from './services/configService'; 
 import { getAllTemplates } from './services/templateService'; 
 import { getAllFeedbacks } from './services/feedbackService'; 
 import { getAllFrames } from './services/frameService'; 
@@ -30,9 +30,53 @@ import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
 import { OrderLookupPage } from './pages/OrderLookupPage';
 import { AboutPage } from './pages/AboutPage';
 import { WarrantyPage } from './pages/WarrantyPage';
+import { BusinessPage } from './pages/BusinessPage'; // ADDED
 import { categorizeParts } from './utils/helpers';
 
 declare var confetti: any;
+
+// Helper để load font Google
+const loadGoogleFont = (fontName: string) => {
+    if (!fontName) return;
+    // Nếu là font tùy chỉnh (đã có trong danh sách upload), không load từ Google
+    if (['Playfair Display', 'Montserrat', 'Roboto', 'Open Sans', 'Merriweather', 'Dancing Script', 'Lora', 'Nunito', 'Pacifico'].includes(fontName)) {
+        const linkId = `font-${fontName.replace(/\s+/g, '-').toLowerCase()}`;
+        if (!document.getElementById(linkId)) {
+            const link = document.createElement('link');
+            link.id = linkId;
+            link.rel = 'stylesheet';
+            link.href = `https://fonts.googleapis.com/css2?family=${fontName.replace(/\s+/g, '+')}:wght@300;400;500;600;700&display=swap`;
+            document.head.appendChild(link);
+        }
+    }
+};
+
+// Helper để load Custom Fonts từ danh sách
+const loadUploadedFonts = (fonts: CustomFont[]) => {
+    const styleId = 'uploaded-custom-fonts';
+    let style = document.getElementById(styleId) as HTMLStyleElement;
+    if (!style) {
+        style = document.createElement('style');
+        style.id = styleId;
+        document.head.appendChild(style);
+    }
+    
+    let css = '';
+    fonts.forEach(font => {
+        // Simple sanitization for font name
+        const safeName = font.name.replace(/[^a-zA-Z0-9\s]/g, '');
+        css += `
+            @font-face {
+                font-family: '${safeName}';
+                src: url('${font.url}');
+                font-weight: normal;
+                font-style: normal;
+                font-display: swap;
+            }
+        `;
+    });
+    style.innerHTML = css;
+};
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('home');
@@ -50,6 +94,9 @@ const App: React.FC = () => {
       }
   });
 
+  // State to track if we are editing an existing order (Order Update Mode)
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+
   useEffect(() => {
       try {
           localStorage.setItem('shopping_cart', JSON.stringify(cartItems));
@@ -61,7 +108,7 @@ const App: React.FC = () => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [zoomedImageUrl, setZoomedImageUrl] = useState<string | null>(null);
-  const [isAppLoading, setIsAppLoading] = useState(true); 
+  
   const [editingCartIndex, setEditingCartIndex] = useState<number | null>(null); 
   
   const [legoParts, setLegoParts] = useState(LEGO_PARTS);
@@ -70,54 +117,77 @@ const App: React.FC = () => {
   const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>(FEEDBACK_ITEMS);
   const [frames, setFrames] = useState<FrameOption[]>(FRAME_OPTIONS); 
 
-  const [logoUrl, setLogoUrl] = useState<string>(() => {
+  // Initialize StoreConfig from LocalStorage to prevent flicker (FOUC)
+  const [storeConfig, setStoreConfig] = useState<StoreConfig>(() => {
       try {
-          const cached = localStorage.getItem('app_config');
-          return cached ? JSON.parse(cached).logoUrl || "" : "";
-      } catch (e) { return ""; }
-  });
-  
-  const [heroImageUrl, setHeroImageUrl] = useState<string | undefined>(() => {
-      try {
-          const cached = localStorage.getItem('app_config');
-          return cached ? JSON.parse(cached).heroImageUrl : undefined;
-      } catch (e) { return undefined; }
-  });
-
-  const [inspireImageUrl, setInspireImageUrl] = useState<string | undefined>(() => {
-      try {
-          const cached = localStorage.getItem('app_config');
-          return cached ? JSON.parse(cached).inspireImageUrl : undefined;
-      } catch (e) { return undefined; }
+          const savedConfig = localStorage.getItem('store_config');
+          return savedConfig ? JSON.parse(savedConfig) : {};
+      } catch (e) {
+          return {};
+      }
   });
 
   // State for cart animation
   const [isCartShaking, setIsCartShaking] = useState(false);
 
-  useEffect(() => {
-      try {
-          const cached = localStorage.getItem('app_config');
-          if (cached) {
-              const config = JSON.parse(cached);
-              if (config.faviconUrl) {
-                  const link = document.querySelector("link[rel~='icon']");
-                  if (link instanceof HTMLLinkElement) {
-                      link.href = config.faviconUrl;
-                  } else {
-                      const newLink = document.createElement('link');
-                      newLink.rel = 'icon';
-                      newLink.href = config.faviconUrl;
-                      document.head.appendChild(newLink);
-                  }
-              }
+  // Function to apply theme variables to DOM
+  const applyTheme = (themeData: typeof DEFAULT_THEME, uploadedFonts: CustomFont[] = []) => {
+      const root = document.documentElement;
+      const { global, sections } = themeData;
+
+      // Global Colors
+      root.style.setProperty('--color-primary', global.colors.primary);
+      root.style.setProperty('--color-secondary', global.colors.secondary);
+      root.style.setProperty('--color-text', global.colors.text);
+      root.style.setProperty('--color-bg', global.colors.background);
+      root.style.setProperty('--color-accent', global.colors.accent);
+
+      // Typography
+      const cleanHeadingFont = global.typography.headingFont.replace(/['"]/g, '');
+      const cleanBodyFont = global.typography.bodyFont.replace(/['"]/g, '');
+
+      root.style.setProperty('--font-heading', `'${cleanHeadingFont}'`);
+      root.style.setProperty('--font-body', `'${cleanBodyFont}'`);
+      
+      // Border Radius
+      root.style.setProperty('--radius-global', global.borderRadius);
+
+      // Section Specifics
+      if (sections) {
+          if (sections.header) {
+              root.style.setProperty('--header-bg', sections.header.backgroundColor || 'rgba(255,255,255,0.8)');
+              root.style.setProperty('--header-text', sections.header.textColor || '#1f2937');
           }
-      } catch(e) {}
-  }, []);
+          if (sections.footer) {
+              root.style.setProperty('--footer-bg', sections.footer.backgroundColor || '#ffffff');
+              root.style.setProperty('--footer-text', sections.footer.textColor || '#374151');
+          }
+      }
+
+      // Load Custom Fonts
+      loadUploadedFonts(uploadedFonts);
+
+      // Load Google Fonts
+      const isCustomHeading = uploadedFonts.some(f => f.name === cleanHeadingFont);
+      const isCustomBody = uploadedFonts.some(f => f.name === cleanBodyFont);
+
+      if (!isCustomHeading) loadGoogleFont(cleanHeadingFont);
+      if (!isCustomBody) loadGoogleFont(cleanBodyFont);
+  };
+
+  // useLayoutEffect runs before browser paint, preventing theme flicker
+  useLayoutEffect(() => {
+      if (storeConfig.theme) {
+          applyTheme(storeConfig.theme, storeConfig.uploadedFonts || []);
+      } else {
+          applyTheme(DEFAULT_THEME, []);
+      }
+  }, [storeConfig]);
 
   useEffect(() => {
       const fetchData = async () => {
           try {
-            const [parts, bgs, storeConfig, tpls, fbs, fetchedFrames] = await Promise.all([
+            const [parts, bgs, fetchedConfig, tpls, fbs, fetchedFrames] = await Promise.all([
                 getAllParts(), 
                 getAllBackgrounds(), 
                 getStoreConfig(),
@@ -126,45 +196,31 @@ const App: React.FC = () => {
                 getAllFrames()
             ]);
             
-            if (parts && parts.length > 0) {
-                setLegoParts(categorizeParts(parts));
-            }
-            if (bgs && bgs.length > 0) {
-                setBackgrounds(bgs);
-            }
-            if (tpls && tpls.length > 0) {
-                setTemplates(tpls);
-            }
-            if (fbs && fbs.length > 0) {
-                setFeedbacks(fbs);
-            }
-            if (fetchedFrames && fetchedFrames.length > 0) {
-                setFrames(fetchedFrames);
-            }
+            if (parts && parts.length > 0) setLegoParts(categorizeParts(parts));
+            if (bgs && bgs.length > 0) setBackgrounds(bgs);
+            if (tpls && tpls.length > 0) setTemplates(tpls);
+            if (fbs && fbs.length > 0) setFeedbacks(fbs);
+            if (fetchedFrames && fetchedFrames.length > 0) setFrames(fetchedFrames);
 
-            if (storeConfig) {
-                localStorage.setItem('app_config', JSON.stringify(storeConfig));
+            if (fetchedConfig) {
+                setStoreConfig(fetchedConfig);
+                // Cache config to LocalStorage for next visit
+                localStorage.setItem('store_config', JSON.stringify(fetchedConfig));
 
-                if (storeConfig.logoUrl) setLogoUrl(storeConfig.logoUrl);
-                if (storeConfig.heroImageUrl) setHeroImageUrl(storeConfig.heroImageUrl);
-                if (storeConfig.inspireImageUrl) setInspireImageUrl(storeConfig.inspireImageUrl);
-                
-                if (storeConfig.faviconUrl) {
+                if (fetchedConfig.faviconUrl) {
                     const link = document.querySelector("link[rel~='icon']");
                     if (link instanceof HTMLLinkElement) {
-                        link.href = storeConfig.faviconUrl;
+                        link.href = fetchedConfig.faviconUrl;
                     } else {
                         const newLink = document.createElement('link');
                         newLink.rel = 'icon';
-                        newLink.href = storeConfig.faviconUrl;
+                        newLink.href = fetchedConfig.faviconUrl;
                         document.head.appendChild(newLink);
                     }
                 }
             }
           } catch (error) {
               console.error("Initial fetch error:", error);
-          } finally {
-              setIsAppLoading(false);
           }
       };
       fetchData();
@@ -175,6 +231,15 @@ const App: React.FC = () => {
   const navigateTo = (page: Page) => {
     if (page === 'builder') {
         setBuilderInitialStep(1);
+    }
+    // If navigating away from checkout/cart and we were editing an order, verify if we should clear it
+    if (editingOrder && page !== 'cart' && page !== 'checkout' && page !== 'builder') {
+       if (window.confirm("Bạn đang sửa đơn hàng. Rời đi sẽ hủy bỏ các thay đổi?")) {
+           setEditingOrder(null);
+           setCartItems([]);
+       } else {
+           return;
+       }
     }
     setCurrentPage(page);
     window.scrollTo(0, 0);
@@ -200,24 +265,15 @@ const App: React.FC = () => {
 
   const handleAddToCart = (newConfig: FrameConfig, openCart = true) => {
     setCartItems(prev => [...prev, { ...newConfig, quantity: 1 }]);
-    // Trigger animation callback
     triggerCartShake();
     if (openCart) {
-        // Wait slightly for animation to land before opening cart if desired
-        // But for better UX with micro-interaction, usually we don't auto-open
-        // if we show the flying animation. 
-        // We will keep openCart logic but maybe add delay?
-        // Actually, if micro interaction is present, usually we DON'T open the cart automatically
-        // to let the user see the fly effect. 
-        // Let's modify behavior: if animation triggers, we might NOT want to open cart immediately.
-        // However, the prop says "openCart". Let's respect it for now.
         setTimeout(() => setIsCartOpen(true), 800); 
     }
   };
 
   const triggerCartShake = () => {
       setIsCartShaking(true);
-      setTimeout(() => setIsCartShaking(false), 500); // Duration of css animation
+      setTimeout(() => setIsCartShaking(false), 500); 
   };
 
   const handleUpdateCartItem = (updatedConfig: FrameConfig) => {
@@ -252,7 +308,43 @@ const App: React.FC = () => {
       setCartItems(prev => prev.map((item, i) => i === index ? { ...item, quantity: newQuantity } : item));
   };
 
+  // Special Handler for "Edit Existing Order"
+  const handleEditOrder = (order: Order) => {
+      if (confirm("Bạn muốn chỉnh sửa đơn hàng này? Giỏ hàng hiện tại sẽ bị thay thế.")) {
+          setCartItems(order.items);
+          setEditingOrder(order);
+          navigateTo('cart');
+      }
+  };
+
   const handlePlaceOrder = async (orderData: Omit<Order, 'status' | 'createdAt'>) => {
+    // If editing existing order, use updateOrder
+    if (editingOrder) {
+        const success = await updateOrder(editingOrder.id, {
+            ...orderData,
+            status: 'Chờ thanh toán', // Reset status if edited? Or keep current? 
+            // Usually editing implies re-approval or payment adjustment, so forcing 'Chờ thanh toán' or 'Đã xác nhận' depends on logic.
+            // Let's keep it safe: Update info and items.
+        });
+        
+        if (success) {
+            const updatedOrder = { 
+                ...editingOrder, 
+                ...orderData,
+                status: editingOrder.status // Keep status or update? Prompt implies customization before packing. 
+            };
+            setCurrentOrder(updatedOrder);
+            setCartItems([]);
+            setEditingOrder(null);
+            navigateTo('order-confirmation');
+            // Notify customer/admin email about update?
+        } else {
+            alert("Lỗi cập nhật đơn hàng. Vui lòng thử lại.");
+        }
+        return;
+    }
+
+    // Normal Create Flow
     const res = await createOrder(orderData);
     if (res.success && res.data) {
         setCurrentOrder(res.data);
@@ -288,34 +380,22 @@ const App: React.FC = () => {
     setTimeout(() => setToast(null), 3000);
   };
 
-  if (isAppLoading && !logoUrl) {
-      return (
-          <div className="min-h-screen flex flex-col items-center justify-center bg-pink-50 text-luvin-pink">
-              <div className="animate-pulse flex flex-col items-center">
-                  <svg className="w-16 h-16 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M12 1.5C12 1.5 12 5.5 15 8.5C18 11.5 22.5 12 22.5 12C22.5 12 18 12.5 15 15.5C12 18.5 12 22.5 12 22.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M12 22.5C12 22.5 12 18.5 9 15.5C6 12.5 1.5 12 1.5 12C1.5 12 6 11.5 9 8.5C12 5.5 12 1.5 12 1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  <span className="font-heading text-2xl tracking-wider">The Luvin</span>
-              </div>
-          </div>
-      )
-  }
-
   return (
-    <div className="min-h-screen flex flex-col font-sans text-gray-900">
+    <div className="min-h-screen flex flex-col font-sans text-gray-900 bg-site-bg text-site-text transition-colors duration-300">
          {currentPage !== 'admin' && (
              <Header 
                 navigateTo={navigateTo} 
                 cartCount={cartItems.length} 
                 onCartClick={() => setIsCartOpen(true)} 
-                logoUrl={logoUrl} 
+                logoUrl={storeConfig.logoUrl || ''} 
                 isCartShaking={isCartShaking}
+                config={storeConfig}
+                currentPage={currentPage}
              />
         )}
         
         <main className="flex-grow">
-            {currentPage === 'home' && <HomePage navigateTo={navigateTo} heroImage={heroImageUrl} inspireImage={inspireImageUrl} feedbacks={feedbacks} templates={templates} />}
+            {currentPage === 'home' && <HomePage navigateTo={navigateTo} config={storeConfig} feedbacks={feedbacks} templates={templates} />}
             {currentPage === 'builder' && (
                 <BuilderPage 
                     config={config} 
@@ -330,7 +410,7 @@ const App: React.FC = () => {
                     editingCartIndex={editingCartIndex} 
                     onCancelEdit={handleCancelEdit} 
                     onZoomImage={setZoomedImageUrl} 
-                    logoUrl={logoUrl}
+                    logoUrl={storeConfig.logoUrl}
                     initialStep={builderInitialStep}
                 />
             )}
@@ -344,15 +424,24 @@ const App: React.FC = () => {
                 onUpdateQuantity={handleUpdateCartQuantity}
                 onZoomImage={setZoomedImageUrl} 
             />}
-            {currentPage === 'checkout' && <CheckoutPage cartItems={cartItems} allParts={allParts} onPlaceOrder={handlePlaceOrder} onZoomImage={(url) => setZoomedImageUrl(url)} />}
+            {currentPage === 'checkout' && (
+                <CheckoutPage 
+                    cartItems={cartItems} 
+                    allParts={allParts} 
+                    onPlaceOrder={handlePlaceOrder} 
+                    onZoomImage={(url) => setZoomedImageUrl(url)}
+                    initialOrder={editingOrder} // Pass existing order if editing
+                />
+            )}
             {currentPage === 'order-confirmation' && <OrderConfirmationPage order={currentOrder} navigateTo={navigateTo} onZoomImage={setZoomedImageUrl} />}
-            {currentPage === 'order-lookup' && <OrderLookupPage onZoomImage={setZoomedImageUrl} />}
+            {currentPage === 'order-lookup' && <OrderLookupPage onZoomImage={setZoomedImageUrl} onEditOrder={handleEditOrder} />}
             {currentPage === 'admin' && <AdminPage />}
-            {currentPage === 'about' && <AboutPage />}
-            {currentPage === 'warranty' && <WarrantyPage />}
+            {currentPage === 'about' && <AboutPage config={storeConfig} />}
+            {currentPage === 'warranty' && <WarrantyPage config={storeConfig} />}
+            {currentPage === 'business' && <BusinessPage config={storeConfig} />}
         </main>
 
-        {currentPage !== 'admin' && <Footer navigateTo={navigateTo} />}
+        {currentPage !== 'admin' && <Footer navigateTo={navigateTo} config={storeConfig} />}
 
         <CartPanel 
             isOpen={isCartOpen} 

@@ -1,23 +1,22 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { getAllOrders } from '../services/orderService';
-import { getAllParts } from '../services/productService';
-import { getAllBackgrounds } from '../services/backgroundService';
-import { getAllTemplates } from '../services/templateService';
-import { getAllFeedbacks } from '../services/feedbackService';
-import { getAllFrames } from '../services/frameService';
-import { getStoreConfig, StoreConfig } from '../services/configService';
-import { auth } from '../config/firebase';
+import { getAllOrders } from '../../services/orderService';
+import { getAllParts } from '../../services/productService';
+import { getAllBackgrounds } from '../../services/backgroundService';
+import { getAllTemplates } from '../../services/templateService';
+import { getAllFeedbacks } from '../../services/feedbackService';
+import { getAllFrames } from '../../services/frameService';
+import { getStoreConfig, StoreConfig } from '../../services/configService';
+import { auth } from '../../config/firebase';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
-import type { Order, LegoPart, PresetBackground, CollectionTemplate, FeedbackItem, FrameOption, StaffRole } from '../types';
+import type { Order, LegoPart, PresetBackground, CollectionTemplate, FeedbackItem, FrameOption, StaffRole } from '../../types';
 
-import { AdminLogin } from '../components/admin/AdminLogin';
-import { AdminDashboard } from '../components/admin/AdminDashboard';
-import { AdminOrders } from '../components/admin/AdminOrders';
-import { AdminProducts } from '../components/admin/AdminProducts';
-import { AdminConfig } from '../components/admin/AdminConfig';
-import { AdminVouchers } from '../components/admin/AdminVouchers';
-import { AdminCustomers } from '../components/admin/AdminCustomers';
+import { AdminLogin } from '../admin/AdminLogin';
+import { AdminDashboard } from '../admin/AdminDashboard';
+import { AdminOrders } from '../admin/AdminOrders';
+import { AdminProducts } from '../admin/AdminProducts';
+import { AdminConfig } from '../admin/AdminConfig';
+import { AdminVouchers } from '../admin/AdminVouchers'; // NEW
+import { AdminCustomers } from '../admin/AdminCustomers'; // NEW
 
 type MainTab = 'dashboard' | 'orders' | 'products' | 'config' | 'marketing' | 'customers';
 
@@ -35,6 +34,7 @@ const AdminPage: React.FC = () => {
     const [storeConfig, setStoreConfig] = useState<StoreConfig>({});
 
     useEffect(() => {
+        // Fetch config immediately to determine roles
         const init = async () => {
             const config = await getStoreConfig();
             if (config) setStoreConfig(config);
@@ -62,14 +62,17 @@ const AdminPage: React.FC = () => {
 
     const handleLogout = async () => { await signOut(auth); };
 
+    // DYNAMIC ROLE DETERMINATION
     const role: StaffRole | null = useMemo(() => {
         if (!currentUser || !currentUser.email) return null;
         
+        // 1. Super Admin Hardcode (Fallback)
         const SUPER_ADMINS = ['jinbduong@gmail.com']; 
         if (SUPER_ADMINS.includes(currentUser.email) || currentUser.email.includes('admin')) {
             return 'admin';
         }
 
+        // 2. Check Dynamic List from Config
         if (storeConfig.staff) {
             const staffMember = storeConfig.staff.find(s => s.email === currentUser.email);
             if (staffMember) {
@@ -77,13 +80,14 @@ const AdminPage: React.FC = () => {
             }
         }
 
-        return 'warehouse';
+        return 'warehouse'; // Default fallback for now if authenticated but not in list (should be stricter in prod)
     }, [currentUser, storeConfig]);
 
     const canViewDashboard = role === 'admin';
     const canManageProducts = role === 'admin';
     const canManageConfig = role === 'admin';
 
+    // Redirect warehouse staff to orders tab if they land on dashboard
     useEffect(() => {
         if (role === 'warehouse' && (activeTab === 'dashboard' || activeTab === 'products' || activeTab === 'config' || activeTab === 'marketing' || activeTab === 'customers')) {
             setActiveTab('orders');
@@ -92,6 +96,7 @@ const AdminPage: React.FC = () => {
 
     if (isAuthChecking) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div></div>;
     
+    // If logged in but no role assigned -> Access Denied (Optional stricter check)
     if (currentUser && !role) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col gap-4">
