@@ -6,9 +6,10 @@ import { addFeedback, updateFeedback, deleteFeedback } from '../../services/feed
 import { uploadToCloudinary } from '../../services/uploadService';
 import { ConfigImageUpload } from './shared/ConfigImageUpload';
 import { FeedbackForm } from './forms/FeedbackForm';
-import firebase from 'firebase/compat/app';
+import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { firebaseConfig } from '../../config/firebase';
+import { testTelegramConnection } from '../../services/telegramService';
 
 interface AdminConfigProps {
     storeConfig: StoreConfig;
@@ -77,6 +78,10 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ storeConfig, setStoreC
     const [isEditingFeedback, setIsEditingFeedback] = useState(false);
     const [editingFeedback, setEditingFeedback] = useState<FeedbackItem | null>(null);
 
+    // Telegram Config
+    const [telegramToken, setTelegramToken] = useState(storeConfig.telegramBotToken || '');
+    const [telegramChatId, setTelegramChatId] = useState(storeConfig.telegramChatId || '');
+
     // Refs for scrolling to inputs
     const inputRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -115,6 +120,8 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ storeConfig, setStoreC
         if (storeConfig.theme) {
             setThemeConfig(storeConfig.theme);
         }
+        if (storeConfig.telegramBotToken) setTelegramToken(storeConfig.telegramBotToken);
+        if (storeConfig.telegramChatId) setTelegramChatId(storeConfig.telegramChatId);
     }, [storeConfig]);
 
     // --- HANDLERS ---
@@ -138,10 +145,13 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ storeConfig, setStoreC
         // Save both storeConfig fields and themeConfig
         const success = await updateStoreConfig({ 
             ...storeConfig,
-            theme: themeConfig 
+            theme: themeConfig,
+            telegramBotToken: telegramToken,
+            telegramChatId: telegramChatId
         });
         if (success) {
-            alert("Đã lưu cấu hình Theme thành công! Website sẽ tải lại để áp dụng.");
+            setStoreConfig(prev => ({ ...prev, theme: themeConfig, telegramBotToken: telegramToken, telegramChatId: telegramChatId }));
+            alert("Đã lưu cấu hình thành công! Website sẽ tải lại để áp dụng.");
             window.location.reload();
         } else {
             alert("Lỗi lưu cấu hình.");
@@ -230,7 +240,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ storeConfig, setStoreC
 
         setLoading(true);
         // Create secondary app to create user without logging out current admin
-        const secondaryApp = firebase.initializeApp(firebaseConfig, "SecondaryApp");
+        const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
         const secondaryAuth = getAuth(secondaryApp);
 
         try {
@@ -264,7 +274,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ storeConfig, setStoreC
                 alert("Lỗi tạo tài khoản: " + error.message);
             }
         } finally {
-            await secondaryApp.delete();
+            await deleteApp(secondaryApp);
             setLoading(false);
         }
     };
@@ -336,7 +346,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ storeConfig, setStoreC
                     <button onClick={() => setActiveTab('sections')} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-colors ${activeTab === 'sections' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border'}`}>Chi tiết</button>
                     <button onClick={() => setActiveTab('content')} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-colors ${activeTab === 'content' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border'}`}>Nội dung</button>
                     <button onClick={() => setActiveTab('fonts')} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-colors ${activeTab === 'fonts' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border'}`}>Quản lý Font</button>
-                    <button onClick={() => setActiveTab('staff')} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-colors ${activeTab === 'staff' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border'}`}>Nhân viên</button>
+                    <button onClick={() => setActiveTab('staff')} className={`px-4 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-colors ${activeTab === 'staff' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 border'}`}>Nhân sự & Bot</button>
                 </div>
             </div>
 
@@ -607,85 +617,137 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ storeConfig, setStoreC
                         </div>
                     )}
 
-                    {/* STAFF TAB */}
+                    {/* STAFF & BOT TAB */}
                     {activeTab === 'staff' && (
-                        <div className="bg-white p-6 rounded-lg border shadow-sm">
-                            <h3 className="text-lg font-bold mb-4 border-b pb-2">Quản lý Nhân sự</h3>
-                            
-                            {/* Add Staff Form */}
-                            <div className="mb-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                                <h4 className="text-sm font-bold mb-3">Thêm nhân viên mới</h4>
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-500 mb-1">Email (Tài khoản)</label>
-                                        <input 
-                                            type="email" 
-                                            placeholder="nhanvien@gmail.com" 
-                                            className="w-full p-2 border rounded text-sm"
-                                            value={newStaffEmail}
-                                            onChange={(e) => setNewStaffEmail(e.target.value)}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-500 mb-1">Mật khẩu</label>
-                                        <input 
-                                            type="text" 
-                                            placeholder="Tối thiểu 6 ký tự" 
-                                            className="w-full p-2 border rounded text-sm"
-                                            value={newStaffPassword}
-                                            onChange={(e) => setNewStaffPassword(e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="flex gap-4">
-                                        <div className="flex-grow">
-                                            <label className="block text-xs font-semibold text-gray-500 mb-1">Quyền hạn (Role)</label>
-                                            <select 
-                                                value={newStaffRole}
-                                                onChange={(e) => setNewStaffRole(e.target.value as 'admin' | 'warehouse')}
+                        <div className="space-y-8">
+                            {/* Staff Management */}
+                            <div className="bg-white p-6 rounded-lg border shadow-sm">
+                                <h3 className="text-lg font-bold mb-4 border-b pb-2">Quản lý Nhân sự</h3>
+                                
+                                {/* Add Staff Form */}
+                                <div className="mb-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                    <h4 className="text-sm font-bold mb-3">Thêm nhân viên mới</h4>
+                                    <div className="space-y-3">
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-500 mb-1">Email (Tài khoản)</label>
+                                            <input 
+                                                type="email" 
+                                                placeholder="nhanvien@gmail.com" 
                                                 className="w-full p-2 border rounded text-sm"
-                                            >
-                                                <option value="warehouse">Kho / Vận hành</option>
-                                                <option value="admin">Quản trị viên (Admin)</option>
-                                            </select>
+                                                value={newStaffEmail}
+                                                onChange={(e) => setNewStaffEmail(e.target.value)}
+                                            />
                                         </div>
-                                        <div className="flex items-end">
-                                            <button 
-                                                onClick={handleAddStaff}
-                                                className="px-4 py-2 bg-blue-600 text-white font-bold rounded text-sm hover:bg-blue-700"
-                                            >
-                                                + Tạo & Thêm
-                                            </button>
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-500 mb-1">Mật khẩu</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Tối thiểu 6 ký tự" 
+                                                className="w-full p-2 border rounded text-sm"
+                                                value={newStaffPassword}
+                                                onChange={(e) => setNewStaffPassword(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="flex gap-4">
+                                            <div className="flex-grow">
+                                                <label className="block text-xs font-semibold text-gray-500 mb-1">Quyền hạn (Role)</label>
+                                                <select 
+                                                    value={newStaffRole}
+                                                    onChange={(e) => setNewStaffRole(e.target.value as 'admin' | 'warehouse')}
+                                                    className="w-full p-2 border rounded text-sm"
+                                                >
+                                                    <option value="warehouse">Kho / Vận hành</option>
+                                                    <option value="admin">Quản trị viên (Admin)</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex items-end">
+                                                <button 
+                                                    onClick={handleAddStaff}
+                                                    className="px-4 py-2 bg-blue-600 text-white font-bold rounded text-sm hover:bg-blue-700"
+                                                >
+                                                    + Tạo & Thêm
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* Staff List */}
+                                <div>
+                                    <h4 className="text-sm font-bold mb-3">Danh sách nhân viên</h4>
+                                    {storeConfig.staff && storeConfig.staff.length > 0 ? (
+                                        <div className="space-y-2">
+                                            {storeConfig.staff.map((staff, idx) => (
+                                                <div key={idx} className="flex justify-between items-center p-3 border rounded bg-white hover:shadow-sm">
+                                                    <div>
+                                                        <p className="font-bold text-sm text-gray-800">{staff.email}</p>
+                                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${staff.role === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                            {staff.role === 'admin' ? 'Admin' : 'Kho/Vận hành'}
+                                                        </span>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => handleDeleteStaff(staff.email)}
+                                                        className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
+                                                        title="Xóa quyền"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-gray-500 italic text-center py-4">Chưa có nhân viên nào được thêm.</p>
+                                    )}
+                                </div>
                             </div>
 
-                            {/* Staff List */}
-                            <div>
-                                <h4 className="text-sm font-bold mb-3">Danh sách nhân viên</h4>
-                                {storeConfig.staff && storeConfig.staff.length > 0 ? (
-                                    <div className="space-y-2">
-                                        {storeConfig.staff.map((staff, idx) => (
-                                            <div key={idx} className="flex justify-between items-center p-3 border rounded bg-white hover:shadow-sm">
-                                                <div>
-                                                    <p className="font-bold text-sm text-gray-800">{staff.email}</p>
-                                                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${staff.role === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                        {staff.role === 'admin' ? 'Admin' : 'Kho/Vận hành'}
-                                                    </span>
-                                                </div>
-                                                <button 
-                                                    onClick={() => handleDeleteStaff(staff.email)}
-                                                    className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors"
-                                                    title="Xóa quyền"
-                                                >
-                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                                </button>
-                                            </div>
-                                        ))}
+                            {/* Telegram Bot Config */}
+                            <div className="bg-white p-6 rounded-lg border shadow-sm">
+                                <h3 className="text-lg font-bold mb-4 border-b pb-2">Thông báo Telegram</h3>
+                                <div className="space-y-4">
+                                    <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-800 mb-2">
+                                        <p>Để nhận thông báo đơn hàng mới qua Telegram:</p>
+                                        <ol className="list-decimal pl-4 mt-1 space-y-1">
+                                            <li>Chat với <b>@BotFather</b> để tạo Bot và lấy <b>Token</b>.</li>
+                                            <li>Tạo nhóm chat, thêm Bot vào nhóm.</li>
+                                            <li>Chat với bot <b>@userinfobot</b> (hoặc tương tự) để lấy <b>Chat ID</b> (thường bắt đầu bằng dấu - cho nhóm).</li>
+                                        </ol>
                                     </div>
-                                ) : (
-                                    <p className="text-sm text-gray-500 italic text-center py-4">Chưa có nhân viên nào được thêm.</p>
-                                )}
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Bot Token</label>
+                                        <input 
+                                            type="password"
+                                            className="w-full p-2 border rounded text-sm"
+                                            placeholder="123456789:ABCdefGHI..."
+                                            value={telegramToken}
+                                            onChange={(e) => setTelegramToken(e.target.value)}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">Chat ID</label>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="text"
+                                                className="w-full p-2 border rounded text-sm"
+                                                placeholder="-100xxxxxxxxx"
+                                                value={telegramChatId}
+                                                onChange={(e) => setTelegramChatId(e.target.value)}
+                                            />
+                                            <button 
+                                                onClick={async () => {
+                                                    if (!telegramToken || !telegramChatId) return alert("Vui lòng nhập Token và Chat ID trước");
+                                                    const res = await testTelegramConnection(telegramToken, telegramChatId);
+                                                    if (res.success) alert("Gửi thử thành công! Hãy kiểm tra tin nhắn Telegram.");
+                                                    else alert("Thất bại: " + res.error);
+                                                }}
+                                                className="bg-green-600 text-white px-3 py-2 rounded text-xs font-bold whitespace-nowrap hover:bg-green-700"
+                                            >
+                                                Test Kết Nối
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-gray-500 italic">Nhấn "Lưu Tất Cả Thay Đổi" bên dưới để áp dụng.</p>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -697,6 +759,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ storeConfig, setStoreC
                     </div>
                 </div>
 
+                {/* ... (Right Panel remains unchanged) ... */}
                 {/* --- RIGHT PANEL: VISUAL PREVIEW --- */}
                 <div className="lg:col-span-8 order-1 lg:order-2">
                     <div className="sticky top-24 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden flex flex-col h-[calc(100vh-140px)]">

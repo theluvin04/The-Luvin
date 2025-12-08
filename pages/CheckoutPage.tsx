@@ -21,7 +21,6 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
   const [street, setStreet] = useState('');
   const [notes, setNotes] = useState('');
   
-  // Changed: Start with empty string to force user selection
   const [deliveryDate, setDeliveryDate] = useState('');
   
   const [provinces, setProvinces] = useState<{ name: string; code: number }[]>([]);
@@ -38,6 +37,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [phoneError, setPhoneError] = useState('');
+  const [submissionError, setSubmissionError] = useState('');
 
   // Voucher State
   const [voucherCode, setVoucherCode] = useState('');
@@ -62,8 +62,6 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
           setShippingOption(initialOrder.shipping.method);
           setAddGiftBox(initialOrder.addGiftBox);
           setPaymentMethod(initialOrder.payment.method);
-          // Vouchers cannot be re-applied in edit mode automatically for simplicity, or we could fetch again.
-          // For now, let's assume editing resets voucher or requires re-entry.
       }
   }, [initialOrder]);
 
@@ -122,8 +120,6 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
   }, [deliveryDate]);
 
   const isEarlyBird = daysDifference >= EARLY_BIRD_THRESHOLD;
-  // If early bird applies, we don't apply other discounts? Or stack? 
-  // Let's decide: Voucher priority or stack. Here: Stack.
   const earlyBirdDiscountAmount = isEarlyBird ? Math.round(subtotal * EARLY_BIRD_DISCOUNT_PERCENT) : 0;
 
   // Voucher Logic
@@ -134,7 +130,6 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
       } else {
           voucherDiscountAmount = appliedVoucher.value;
       }
-      // Ensure discount doesn't exceed total
       if (voucherDiscountAmount > subtotal) voucherDiscountAmount = subtotal;
   }
 
@@ -168,6 +163,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return; 
+    setSubmissionError(''); 
 
     const phoneRegex = /^0\d{9}$/;
     if (!phoneRegex.test(phone)) {
@@ -175,7 +171,6 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
         return;
     }
 
-    // Double check delivery date
     if (!deliveryDate) {
         alert("Vui lòng chọn ngày nhận hàng mong muốn.");
         return;
@@ -193,7 +188,6 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
     }
 
     const orderId = initialOrder ? initialOrder.id : `#TL${Date.now().toString().slice(-6)}`;
-    
     const finalNotes = (isEarlyBird ? `[ƯU ĐÃI ĐẶT SỚM 5%] ` : '') + (appliedVoucher ? `[VOUCHER: ${appliedVoucher.code}] ` : '') + notes;
 
     try {
@@ -211,15 +205,16 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
           discountAmount: totalDiscount
         });
 
-        // Increment usage if voucher used
         if (appliedVoucher) {
             await incrementVoucherUsage(appliedVoucher.code);
         }
 
-    } catch (error) {
+    } catch (error: any) {
         console.error("Order submission error:", error);
         setIsSubmitting(false);
-        alert("Đã có lỗi xảy ra khi đặt hàng. Vui lòng thử lại.");
+        const message = error.message || "Đã có lỗi xảy ra. Vui lòng thử lại hoặc liên hệ hotline.";
+        setSubmissionError(message);
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     }
   };
 
@@ -293,8 +288,6 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
                             required 
                             min={new Date().toISOString().split("T")[0]} 
                           />
-                          
-                          {/* EARLY BIRD NOTIFICATION */}
                           {isEarlyBird ? (
                               <p className="text-xs text-green-600 font-bold mt-1 animate-pulse">
                                   ✓ Đặt trước {daysDifference} ngày: Giảm 5%
@@ -485,8 +478,17 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ cartItems, allParts,
                   </label>
                 </div>
               </div>
+              
+              {/* DISPLAY SUBMISSION ERROR */}
+              {submissionError && (
+                  <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm font-bold flex items-start gap-2 animate-bounce-small">
+                      <span className="text-xl">⚠️</span>
+                      <span>{submissionError}</span>
+                  </div>
+              )}
+
               <button type="submit" disabled={isSubmitting} className="w-full mt-4 bg-luvin-pink text-gray-800 font-bold py-3 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-wait">
-                {isSubmitting ? 'Đang xử lý...' : (initialOrder ? 'CẬP NHẬT ĐƠN HÀNG' : 'ĐẶT HÀNG')}
+                {isSubmitting ? 'Đang xử lý...' : (initialOrder ? 'LƯU CẬP NHẬT ĐƠN HÀNG' : 'ĐẶT HÀNG')}
               </button>
             </div>
           </div>

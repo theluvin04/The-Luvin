@@ -33,6 +33,30 @@ export const countPartsInOrder = (orderItems: Order['items']): Record<string, nu
     return counts;
 };
 
+// HELPER: Deep clean data for Firestore (Removes undefined, empty array slots, ensuring strict plain objects)
+const cleanForFirestore = (data: any): any => {
+    // 1. Primitives
+    if (data === null || data === undefined) return data; 
+    if (typeof data !== 'object') return data;
+
+    // 2. Arrays
+    if (Array.isArray(data)) {
+        return data
+            .map(cleanForFirestore)
+            .filter(item => item !== undefined);
+    }
+
+    // 3. Objects
+    const newObj: any = {};
+    Object.keys(data).forEach(key => {
+        const val = cleanForFirestore(data[key]);
+        if (val !== undefined) {
+            newObj[key] = val;
+        }
+    });
+    return newObj;
+};
+
 // 1. Hàm tạo đơn hàng mới
 export const createOrder = async (order: Omit<Order, 'status' | 'createdAt'>) => {
     try {
@@ -40,6 +64,7 @@ export const createOrder = async (order: Omit<Order, 'status' | 'createdAt'>) =>
         const itemsWithImages = await Promise.all(order.items.map(async (item) => {
             if (item.previewImageUrl && item.previewImageUrl.startsWith('data:')) {
                 const cloudUrl = await uploadToCloudinary(item.previewImageUrl);
+                if (!cloudUrl) throw new Error("Lỗi upload ảnh thiết kế. Vui lòng kiểm tra kết nối mạng.");
                 return { ...item, previewImageUrl: cloudUrl || item.previewImageUrl };
             }
             return item; 
@@ -56,8 +81,8 @@ export const createOrder = async (order: Omit<Order, 'status' | 'createdAt'>) =>
             adminDeadline: ""
         };
 
-        // SANITIZE: Firestore throws error on 'undefined'. We remove undefined keys.
-        const sanitizedOrder = JSON.parse(JSON.stringify(finalOrder));
+        // SANITIZE: Use deep clean instead of just JSON.parse(JSON.stringify)
+        const sanitizedOrder = cleanForFirestore(finalOrder);
 
         // 1. Lưu đơn hàng vào Firestore
         await setDoc(doc(db, "orders", order.id), sanitizedOrder);
@@ -74,9 +99,16 @@ export const createOrder = async (order: Omit<Order, 'status' | 'createdAt'>) =>
         adjustStock(stockAdjustments);
 
         return { success: true, data: finalOrder };
-    } catch (error) {
+    } catch (error: any) {
         console.error("Lỗi tạo đơn hàng:", error);
-        return { success: false, error };
+        
+        // Return structured error
+        let errorMessage = "Đã có lỗi xảy ra.";
+        if (error.code === 'permission-denied') errorMessage = "Lỗi quyền truy cập hệ thống. Vui lòng liên hệ Admin.";
+        else if (error.code === 'unavailable') errorMessage = "Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng.";
+        else if (error.message) errorMessage = error.message;
+
+        return { success: false, error: { message: errorMessage, original: error } };
     }
 };
 
@@ -114,41 +146,40 @@ export const getOrdersByPhone = async (phone: string): Promise<Order[]> => {
 // 3. Hàm lấy toàn bộ danh sách đơn hàng (cho trang Admin)
 export const getAllOrders = async (): Promise<Order[]> => {
     try {
-        const q = query(collection(db, "orders"), orderBy("createdAt", "desc")); 
+        const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
         const querySnapshot = await getDocs(q);
-        
         const orders: Order[] = [];
         querySnapshot.forEach((doc) => {
             orders.push(doc.data() as Order);
         });
         return orders;
-    } catch (error) {
-        console.error("Lỗi lấy danh sách đơn:", error);
+    } catch (error: any) {
+        console.error("Lỗi lấy danh sách đơn hàng:", error);
         return [];
     }
 };
 
-// 4. Hàm cập nhật thông tin đơn hàng
-export const updateOrder = async (orderId: string, updates: Partial<Order>) => {
+// 4. Update Order
+export const updateOrder = async (orderId: string, updates: Partial<Order>): Promise<boolean> => {
     try {
         const orderRef = doc(db, "orders", orderId);
-        // Sanitize updates as well
-        const sanitizedUpdates = JSON.parse(JSON.stringify(updates));
-        await updateDoc(orderRef, sanitizedUpdates);
+        // Important: Sanitize updates to remove undefined fields which cause Firestore to crash
+        const cleanUpdates = cleanForFirestore(updates);
+        await updateDoc(orderRef, cleanUpdates);
         return true;
     } catch (error) {
-        console.error("Lỗi cập nhật đơn hàng:", error);
+        console.error("Error updating order:", error);
         return false;
     }
 };
 
-// 5. Hàm xóa đơn hàng (Dành cho Admin dọn đơn rác)
-export const deleteOrder = async (orderId: string) => {
+// 5. Delete Order
+export const deleteOrder = async (orderId: string): Promise<boolean> => {
     try {
         await deleteDoc(doc(db, "orders", orderId));
         return true;
     } catch (error) {
-        console.error("Lỗi xóa đơn hàng:", error);
+        console.error("Error deleting order:", error);
         return false;
     }
 };

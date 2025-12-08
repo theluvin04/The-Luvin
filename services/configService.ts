@@ -1,6 +1,6 @@
 
 import { db } from '../config/firebase';
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { ThemeConfig, CustomFont, StaffMember } from '../types';
 
 const CONFIG_DOC_ID = 'general';
@@ -38,8 +38,12 @@ export interface StoreConfig {
     // NEW: Staff Management
     staff?: StaffMember[];
 
-    // Ads Config (Deprecated in favor of daily collection, kept for fallback if needed)
+    // Ads Config
     dailyAdsBudget?: number; 
+
+    // NEW: Telegram Notification Config
+    telegramBotToken?: string;
+    telegramChatId?: string;
 }
 
 export const DEFAULT_THEME: ThemeConfig = {

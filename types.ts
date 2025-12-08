@@ -13,6 +13,8 @@ export interface FrameOption {
   backgroundHeightCm: number;
   price: number;
   costPrice?: number;
+  salePrice?: number; // Giá khuyến mãi
+  saleEndDate?: string; // Ngày kết thúc khuyến mãi (ISO string)
   imageUrl: string;
   description: string;
   stock?: number;
@@ -33,6 +35,8 @@ export interface LegoPart {
   name: string;
   price: number; 
   costPrice?: number;
+  salePrice?: number; // Giá khuyến mãi
+  saleEndDate?: string; // Ngày kết thúc khuyến mãi (ISO string)
   imageUrl: string;
   type: 'hair' | 'face' | 'shirt' | 'pants' | 'accessory' | 'pet' | 'hat' | 'set';
   widthCm: number;
@@ -54,6 +58,7 @@ export interface PresetBackground {
     url: string;
     category: string;
     type: 'square' | 'rectangle';
+    orientation?: 'portrait' | 'landscape';
     order?: number;
 }
 
@@ -110,6 +115,7 @@ export interface BackgroundConfig {
 export interface FrameConfig {
   frameId: string;
   frameColor?: string;
+  isRotated?: boolean;
   background: BackgroundConfig;
   characters: LegoCharacterConfig[];
   texts: TextConfig[];
@@ -247,4 +253,55 @@ export interface ThemeConfig {
         hero: SectionStyle;
         footer: SectionStyle;
     };
+}
+
+// --- STUDIO DESIGN (NEW) ---
+export type LayerType = 'text' | 'image' | 'shape';
+
+export interface StudioLayer {
+    id: string;
+    type: LayerType;
+    name: string;
+    
+    // Position & Transform (Relative %)
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation: number;
+    
+    // Style
+    opacity: number;
+    visible: boolean;
+    locked: boolean; // Admin lock (cannot move/select in editor)
+    
+    // Text Props
+    text?: string;
+    fontFamily?: string;
+    fontSize?: number; // px based on base resolution
+    fill?: string; // Text color or Shape fill
+    fontWeight?: string;
+    textAlign?: 'left' | 'center' | 'right';
+    
+    // Image Props
+    src?: string;
+    
+    // Shape Props
+    shapeType?: 'rectangle' | 'circle' | 'line';
+    stroke?: string;
+    strokeWidth?: number;
+    cornerRadius?: number;
+
+    // Customer Constraints
+    allowUserEdit?: boolean; // Can customer change text/image?
+}
+
+export interface StudioTemplate {
+    id: string;
+    name: string;
+    category: string; // e.g., "Love", "Birthday"
+    frameId: string; // e.g., "lg" (23x23), "md" (A5)
+    layers: StudioLayer[];
+    thumbnailUrl?: string;
+    updatedAt: number;
 }
